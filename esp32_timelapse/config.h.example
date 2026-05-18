@@ -9,8 +9,8 @@
 // GitHub repository that will receive hourly photos.
 // Use a fine-grained personal access token with Contents: read/write
 // permission limited to this one repository.
-#define GITHUB_OWNER "your-github-user"
-#define GITHUB_REPO "esp32-timelapse"
+#define GITHUB_OWNER "tdufva"
+#define GITHUB_REPO "-esp32-timelapse"
 #define GITHUB_BRANCH "main"
 #define GITHUB_TOKEN "github_pat_replace_me"
 

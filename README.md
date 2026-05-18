@@ -16,7 +16,7 @@ Tama projekti tekee ESP32-CAM-moduulista tuntivalein kuvaavan timelapse-kameran:
 
 ## GitHub-repo
 
-1. Luo GitHubiin julkinen repo, esimerkiksi `esp32-timelapse`.
+1. GitHub-repo on `tdufva/-esp32-timelapse`.
 2. Vie taman projektin tiedostot siihen repoon.
 3. GitHubissa avaa repon asetukset: **Settings -> Pages**.
 4. Valitse julkaisuhaaraksi `main` ja kansioksi `/docs`.
@@ -24,8 +24,8 @@ Tama projekti tekee ESP32-CAM-moduulista tuntivalein kuvaavan timelapse-kameran:
 
 ```js
 window.TIMELAPSE_CONFIG = {
-  owner: "oma-github-kayttajasi",
-  repo: "esp32-timelapse",
+  owner: "tdufva",
+  repo: "-esp32-timelapse",
   branch: "main",
   photoPath: "photos",
   frameRate: 8,
@@ -33,7 +33,7 @@ window.TIMELAPSE_CONFIG = {
 };
 ```
 
-Sivu aukeaa osoitteessa `https://oma-github-kayttajasi.github.io/esp32-timelapse/`, kun Pages on julkaissut sen.
+Sivu aukeaa osoitteessa `https://tdufva.github.io/-esp32-timelapse/`.
 
 ## GitHub-token ESP32:lle
 

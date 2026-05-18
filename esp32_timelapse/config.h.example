@@ -1,0 +1,47 @@
+#pragma once
+
+// Copy this file to config.h and fill in your own values.
+// Do not commit config.h to a public repository.
+
+#define WIFI_SSID "your-wifi-name"
+#define WIFI_PASSWORD "your-wifi-password"
+
+// GitHub repository that will receive hourly photos.
+// Use a fine-grained personal access token with Contents: read/write
+// permission limited to this one repository.
+#define GITHUB_OWNER "your-github-user"
+#define GITHUB_REPO "esp32-timelapse"
+#define GITHUB_BRANCH "main"
+#define GITHUB_TOKEN "github_pat_replace_me"
+
+// Folder names. LOCAL_PHOTO_PATH is on the microSD card.
+// GITHUB_PHOTO_PATH is inside the GitHub repository.
+#define LOCAL_PHOTO_PATH "/photos"
+#define GITHUB_PHOTO_PATH "photos"
+
+// Keep this filesystem-safe: letters, numbers, dash, underscore.
+#define CAMERA_NAME "esp32cam"
+
+// Finland time zone with daylight saving time.
+// Use "UTC0" if you prefer UTC filenames.
+#define TIMEZONE "EET-2EEST,M3.5.0/3,M10.5.0/4"
+
+// Capture one frame per hour.
+#define CAPTURE_INTERVAL_MINUTES 60ULL
+
+// Camera quality. XGA is a useful GitHub-friendly default.
+// You can try FRAMESIZE_SXGA or FRAMESIZE_UXGA if your module has PSRAM.
+#define FRAME_SIZE FRAMESIZE_XGA
+#define JPEG_QUALITY 12
+
+// Built-in flash LED on many AI Thinker ESP32-CAM boards.
+#define USE_FLASH_LED false
+#define FLASH_LED_MS 250
+
+// Keep TLS verification enabled. If GitHub changes certificate authorities
+// and uploads start failing, set this to 0 temporarily and update the CA cert
+// in esp32_timelapse.ino.
+#define VERIFY_GITHUB_TLS 1
+
+#define WIFI_CONNECT_TIMEOUT_MS 30000UL
+#define NTP_TIMEOUT_MS 15000UL

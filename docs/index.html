@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="fi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ESP32 Timelapse</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="config.js"></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar" aria-label="Ylapalkki">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <h1>ESP32 Timelapse</h1>
+            <p id="sourceLabel">GitHub Pages</p>
+          </div>
+        </div>
+        <div class="status-strip" aria-live="polite">
+          <span id="syncState" class="status-dot">Valmis</span>
+          <span id="frameCount">0 kuvaa</span>
+          <span id="latestFrame">Ei kuvia</span>
+        </div>
+      </header>
+
+      <section class="workspace" aria-label="Timelapse-soitin">
+        <div class="viewer">
+          <div class="image-stage">
+            <img id="frameImage" alt="Timelapse-kuva" decoding="async">
+            <div id="emptyState" class="empty-state">
+              <strong>Odottaa kuvia</strong>
+              <span>Kun ESP32 lataa ensimmaisen kuvan GitHubiin, soitin kaynnistyy automaattisesti.</span>
+            </div>
+          </div>
+
+          <div class="timeline-row">
+            <input id="frameSlider" type="range" min="0" max="0" value="0" aria-label="Kuvan sijainti">
+            <output id="frameLabel" for="frameSlider">0 / 0</output>
+          </div>
+        </div>
+
+        <aside class="control-panel" aria-label="Ohjaimet">
+          <div class="controls">
+            <button id="playToggle" class="icon-button primary" type="button" title="Toista tai pysayta" aria-label="Toista tai pysayta">
+              <svg class="icon icon-play" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 5v14l11-7z"></path>
+              </svg>
+              <svg class="icon icon-pause" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M7 5h4v14H7zM13 5h4v14h-4z"></path>
+              </svg>
+            </button>
+            <button id="prevFrame" class="icon-button" type="button" title="Edellinen kuva" aria-label="Edellinen kuva">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M11 6v12l-8-6 8-6Zm2 0h3v12h-3V6Z"></path>
+              </svg>
+            </button>
+            <button id="nextFrame" class="icon-button" type="button" title="Seuraava kuva" aria-label="Seuraava kuva">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M13 18V6l8 6-8 6ZM8 6h3v12H8V6Z"></path>
+              </svg>
+            </button>
+            <button id="refreshFrames" class="icon-button" type="button" title="Paivita" aria-label="Paivita kuvat">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M17.7 6.3A8 8 0 1 0 20 12h-2.4a5.6 5.6 0 1 1-1.6-4l-2.2 2.2H21V3l-3.3 3.3Z"></path>
+              </svg>
+            </button>
+          </div>
+
+          <label class="speed-control">
+            <span>Nopeus</span>
+            <input id="speedSlider" type="range" min="1" max="24" value="8">
+            <output id="speedLabel" for="speedSlider">8 fps</output>
+          </label>
+
+          <dl class="stat-grid">
+            <div>
+              <dt>Ensimmainen</dt>
+              <dd id="firstDate">-</dd>
+            </div>
+            <div>
+              <dt>Viimeisin</dt>
+              <dd id="lastDate">-</dd>
+            </div>
+            <div>
+              <dt>Kansion polku</dt>
+              <dd id="pathValue">photos</dd>
+            </div>
+            <div>
+              <dt>Kuva</dt>
+              <dd id="currentName">-</dd>
+            </div>
+          </dl>
+        </aside>
+      </section>
+    </main>
+  </body>
+</html>

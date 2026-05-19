@@ -5,7 +5,7 @@ Tama projekti tekee ESP32-CAM-moduulista tuntivalein kuvaavan timelapse-kameran:
 - ESP32-CAM ottaa kuvan kerran tunnissa.
 - Kuva tallennetaan microSD-kortille kansioon `/photos`.
 - Jos Wi-Fi toimii, sama kuva lahetetaan GitHub-repon `photos/`-kansioon.
-- GitHub Pages -sivu hakee `photos/`-kansion kuvat ja toistaa ne timelapsena selaimessa.
+- GitHub Pages -sivu hakee `photos/`-kansion kuvat, pikseloi ne selaimessa ja toistaa ne solar punk -savytettyna timelapsena.
 
 ## Tiedostot
 
@@ -29,7 +29,11 @@ window.TIMELAPSE_CONFIG = {
   branch: "main",
   photoPath: "photos",
   frameRate: 8,
-  refreshSeconds: 300
+  refreshSeconds: 300,
+  pixelWidth: 128,
+  solarBrightness: 1.18,
+  solarSaturation: 1.35,
+  solarLevels: 5
 };
 ```
 
@@ -70,6 +74,17 @@ cp esp32_timelapse/config.h.example esp32_timelapse/config.h
 9. Lataa sketch moduuliin Arduinon kautta.
 
 Ensimmainen kuva otetaan heti kaynnistyksessa. Sen jalkeen moduuli menee deep sleep -tilaan ja heraa tunnin valein.
+
+## Pikselityyli ja tiedostokoko
+
+Oletuksena kamera tallentaa `FRAMESIZE_QVGA`-kuvan ja `JPEG_QUALITY 20` -pakkauksen. Tama pienentaa GitHubiin ladattavia tiedostoja merkittavasti verrattuna XGA/UXGA-kuviin. Jos haluat hieman enemman lahdetarkkuutta, vaihda `esp32_timelapse/config.h`-tiedostossa arvoksi `FRAMESIZE_VGA`.
+
+Sivun pikseliefektia voi saataa `docs/config.js`-tiedostossa:
+
+- `pixelWidth`: kasiteltavan kuvan leveys pikseleina. Pienempi arvo tekee isommat pikselit.
+- `solarBrightness`: kirkkauden kerroin.
+- `solarSaturation`: varien voimakkuuden kerroin.
+- `solarLevels`: varien posterointitasot. Pienempi arvo tekee graafisemman ja minimalistisemman kuvan.
 
 ## Huomiot
 

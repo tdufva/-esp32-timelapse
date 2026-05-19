@@ -153,12 +153,14 @@ h1 {
   position: relative;
 }
 
-#frameImage {
+#frameCanvas {
   width: 100%;
   height: 100%;
   object-fit: contain;
   display: none;
   background: #111514;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 
 .empty-state {

@@ -29,10 +29,11 @@
 // Capture one frame per hour.
 #define CAPTURE_INTERVAL_MINUTES 60ULL
 
-// Camera quality. XGA is a useful GitHub-friendly default.
-// You can try FRAMESIZE_SXGA or FRAMESIZE_UXGA if your module has PSRAM.
-#define FRAME_SIZE FRAMESIZE_XGA
-#define JPEG_QUALITY 12
+// Camera quality. QVGA keeps the uploaded files small and gives the
+// website a clean pixel-art source. Increase to FRAMESIZE_VGA if you
+// want more source detail. JPEG quality: lower number = better quality.
+#define FRAME_SIZE FRAMESIZE_QVGA
+#define JPEG_QUALITY 20
 
 // Built-in flash LED on many AI Thinker ESP32-CAM boards.
 #define USE_FLASH_LED false

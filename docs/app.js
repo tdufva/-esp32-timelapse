@@ -5,6 +5,10 @@ const config = {
   photoPath: "photos",
   frameRate: 8,
   refreshSeconds: 300,
+  pixelWidth: 128,
+  solarBrightness: 1.18,
+  solarSaturation: 1.35,
+  solarLevels: 5,
   ...(window.TIMELAPSE_CONFIG || {})
 };
 
@@ -22,7 +26,7 @@ const els = {
   syncState: document.querySelector("#syncState"),
   frameCount: document.querySelector("#frameCount"),
   latestFrame: document.querySelector("#latestFrame"),
-  frameImage: document.querySelector("#frameImage"),
+  frameCanvas: document.querySelector("#frameCanvas"),
   emptyState: document.querySelector("#emptyState"),
   frameSlider: document.querySelector("#frameSlider"),
   frameLabel: document.querySelector("#frameLabel"),
@@ -37,6 +41,13 @@ const els = {
   pathValue: document.querySelector("#pathValue"),
   currentName: document.querySelector("#currentName")
 };
+
+const renderState = {
+  token: 0,
+  sourceImage: new Image()
+};
+
+renderState.sourceImage.crossOrigin = "anonymous";
 
 function isConfigured() {
   return config.owner && config.repo && config.owner !== "your-github-user";
@@ -123,21 +134,152 @@ function updateStats() {
   els.frameLabel.value = total ? `${state.index + 1} / ${total}` : "0 / 0";
 }
 
-function renderFrame() {
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function rgbToHsl(red, green, blue) {
+  const r = red / 255;
+  const g = green / 255;
+  const b = blue / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r:
+        h = (g - b) / d + (g < b ? 6 : 0);
+        break;
+      case g:
+        h = (b - r) / d + 2;
+        break;
+      default:
+        h = (r - g) / d + 4;
+        break;
+    }
+    h /= 6;
+  }
+
+  return [h, s, l];
+}
+
+function hueToRgb(p, q, t) {
+  let next = t;
+  if (next < 0) next += 1;
+  if (next > 1) next -= 1;
+  if (next < 1 / 6) return p + (q - p) * 6 * next;
+  if (next < 1 / 2) return q;
+  if (next < 2 / 3) return p + (q - p) * (2 / 3 - next) * 6;
+  return p;
+}
+
+function hslToRgb(h, s, l) {
+  if (s === 0) {
+    const gray = Math.round(l * 255);
+    return [gray, gray, gray];
+  }
+
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+
+  return [
+    Math.round(hueToRgb(p, q, h + 1 / 3) * 255),
+    Math.round(hueToRgb(p, q, h) * 255),
+    Math.round(hueToRgb(p, q, h - 1 / 3) * 255)
+  ];
+}
+
+function posterize(value, levels) {
+  const safeLevels = Math.max(2, Number(levels) || 5);
+  return Math.round(Math.round(value * (safeLevels - 1)) / (safeLevels - 1) * 255);
+}
+
+function solarizePixel(red, green, blue) {
+  const [h, s, l] = rgbToHsl(red, green, blue);
+  const warmLight = clamp(l * Number(config.solarBrightness || 1.18) + 0.04, 0, 1);
+  const vivid = clamp(s * Number(config.solarSaturation || 1.35) + 0.04, 0, 1);
+  let hue = h;
+
+  if (h > 0.16 && h < 0.48) {
+    hue = clamp(h + 0.035, 0, 1);
+  } else if (h >= 0.48 && h < 0.72) {
+    hue = clamp(h - 0.055, 0, 1);
+  } else if (h < 0.08 || h > 0.92) {
+    hue = 0.105;
+  } else if (warmLight > 0.72 && vivid < 0.28) {
+    hue = 0.14;
+  }
+
+  let [r, g, b] = hslToRgb(hue, vivid, warmLight);
+  r = posterize(r / 255, config.solarLevels);
+  g = posterize(g / 255, config.solarLevels);
+  b = posterize(b / 255, config.solarLevels);
+
+  return [r, g, b];
+}
+
+function colorGrade(imageData) {
+  const data = imageData.data;
+  for (let index = 0; index < data.length; index += 4) {
+    const [r, g, b] = solarizePixel(data[index], data[index + 1], data[index + 2]);
+    data[index] = r;
+    data[index + 1] = g;
+    data[index + 2] = b;
+  }
+  return imageData;
+}
+
+function drawPixelFrame(image) {
+  const ratio = image.naturalHeight / image.naturalWidth || 0.75;
+  const width = clamp(Math.round(Number(config.pixelWidth) || 128), 48, 320);
+  const height = Math.max(1, Math.round(width * ratio));
+  const workCanvas = document.createElement("canvas");
+  const workContext = workCanvas.getContext("2d", { willReadFrequently: true });
+  const targetContext = els.frameCanvas.getContext("2d");
+
+  workCanvas.width = width;
+  workCanvas.height = height;
+  workContext.imageSmoothingEnabled = true;
+  workContext.drawImage(image, 0, 0, width, height);
+
+  const graded = colorGrade(workContext.getImageData(0, 0, width, height));
+  els.frameCanvas.width = width;
+  els.frameCanvas.height = height;
+  targetContext.imageSmoothingEnabled = false;
+  targetContext.putImageData(graded, 0, 0);
+}
+
+async function renderFrame() {
   const frame = state.frames[state.index];
+  const token = ++renderState.token;
+
   if (!frame) {
-    els.frameImage.removeAttribute("src");
-    els.frameImage.style.display = "none";
+    els.frameCanvas.style.display = "none";
     els.emptyState.style.display = "grid";
     updateStats();
     return;
   }
 
   els.emptyState.style.display = "none";
-  els.frameImage.style.display = "block";
-  if (els.frameImage.src !== frame.url) {
-    els.frameImage.src = frame.url;
+  els.frameCanvas.style.display = "block";
+
+  try {
+    renderState.sourceImage.src = frame.url;
+    await renderState.sourceImage.decode();
+    if (token !== renderState.token) {
+      return;
+    }
+    drawPixelFrame(renderState.sourceImage);
+  } catch (error) {
+    console.error(error);
+    setStatus("Kuvavirhe");
   }
+
   updateStats();
   preloadAround(state.index);
 }

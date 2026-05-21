@@ -6,6 +6,8 @@ const config = {
   frameRate: 8,
   refreshSeconds: 300,
   pixelWidth: 128,
+  defaultResolution: "128",
+  defaultStyle: "minimal",
   solarBrightness: 1.18,
   solarSaturation: 1.35,
   solarLevels: 5,
@@ -17,6 +19,8 @@ const state = {
   index: 0,
   playing: true,
   fps: Number(config.frameRate) || 8,
+  resolutionIndex: 5,
+  styleMode: config.defaultStyle || "minimal",
   timer: null,
   refreshTimer: null
 };
@@ -36,6 +40,9 @@ const els = {
   refreshFrames: document.querySelector("#refreshFrames"),
   speedSlider: document.querySelector("#speedSlider"),
   speedLabel: document.querySelector("#speedLabel"),
+  resolutionSlider: document.querySelector("#resolutionSlider"),
+  resolutionLabel: document.querySelector("#resolutionLabel"),
+  styleSelect: document.querySelector("#styleSelect"),
   firstDate: document.querySelector("#firstDate"),
   lastDate: document.querySelector("#lastDate"),
   pathValue: document.querySelector("#pathValue"),
@@ -48,6 +55,33 @@ const renderState = {
 };
 
 renderState.sourceImage.crossOrigin = "anonymous";
+
+const resolutionPresets = [
+  { id: "4x6", label: "4 x 6 px", longSide: 6 },
+  { id: "12", label: "12 px", longSide: 12 },
+  { id: "24", label: "24 px", longSide: 24 },
+  { id: "48", label: "48 px", longSide: 48 },
+  { id: "96", label: "96 px", longSide: 96 },
+  { id: "128", label: "128 px", longSide: 128 },
+  { id: "256", label: "256 px", longSide: 256 },
+  { id: "512", label: "512 px", longSide: 512 },
+  { id: "full", label: "Täysi", full: true }
+];
+
+const stylePresets = {
+  minimal: { label: "Minimalistinen", levels: 5 },
+  nature: { label: "Luontodokumentti", levels: 10 },
+  cinematic: { label: "Cinematic", levels: 7 },
+  mono: { label: "Mustavalkoinen", levels: 8 }
+};
+
+const configuredResolution = String(config.defaultResolution || config.pixelWidth || "128");
+const configuredResolutionIndex = resolutionPresets.findIndex((preset) => preset.id === configuredResolution || String(preset.longSide) === configuredResolution);
+state.resolutionIndex = configuredResolutionIndex >= 0 ? configuredResolutionIndex : 5;
+
+if (!stylePresets[state.styleMode]) {
+  state.styleMode = "minimal";
+}
 
 function isConfigured() {
   return config.owner && config.repo && config.owner !== "your-github-user";
@@ -138,6 +172,10 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function contrastLightness(value, amount = 1, lift = 0) {
+  return clamp((value - 0.5) * amount + 0.5 + lift, 0, 1);
+}
+
 function rgbToHsl(red, green, blue) {
   const r = red / 255;
   const g = green / 255;
@@ -199,7 +237,51 @@ function posterize(value, levels) {
   return Math.round(Math.round(value * (safeLevels - 1)) / (safeLevels - 1) * 255);
 }
 
-function solarizePixel(red, green, blue) {
+function resolveRenderSize(image) {
+  const preset = resolutionPresets[state.resolutionIndex] || resolutionPresets[5];
+  const sourceWidth = Math.max(1, image.naturalWidth || image.width || 1);
+  const sourceHeight = Math.max(1, image.naturalHeight || image.height || 1);
+
+  if (preset.full) {
+    return { width: sourceWidth, height: sourceHeight, full: true };
+  }
+
+  if (preset.id === "4x6") {
+    return sourceWidth >= sourceHeight
+      ? { width: 6, height: 4, full: false }
+      : { width: 4, height: 6, full: false };
+  }
+
+  const longSide = Math.max(1, Number(preset.longSide) || 128);
+  if (sourceWidth >= sourceHeight) {
+    return {
+      width: Math.min(sourceWidth, longSide),
+      height: Math.max(1, Math.round(Math.min(sourceWidth, longSide) * sourceHeight / sourceWidth)),
+      full: false
+    };
+  }
+
+  return {
+    width: Math.max(1, Math.round(Math.min(sourceHeight, longSide) * sourceWidth / sourceHeight)),
+    height: Math.min(sourceHeight, longSide),
+    full: false
+  };
+}
+
+function updateResolutionLabel(width, height, isFull = false) {
+  const suffix = isFull ? `Täysi ${width} x ${height} px` : `${width} x ${height} px`;
+  els.resolutionLabel.value = suffix;
+  els.resolutionLabel.textContent = suffix;
+}
+
+function updateResolutionPresetLabel() {
+  const preset = resolutionPresets[state.resolutionIndex] || resolutionPresets[5];
+  const label = preset.full ? "Täysi" : preset.label;
+  els.resolutionLabel.value = label;
+  els.resolutionLabel.textContent = label;
+}
+
+function gradeMinimal(red, green, blue) {
   const [h, s, l] = rgbToHsl(red, green, blue);
   const warmLight = clamp(l * Number(config.solarBrightness || 1.18) + 0.04, 0, 1);
   const vivid = clamp(s * Number(config.solarSaturation || 1.35) + 0.04, 0, 1);
@@ -223,10 +305,73 @@ function solarizePixel(red, green, blue) {
   return [r, g, b];
 }
 
+function gradeNature(red, green, blue) {
+  let [h, s, l] = rgbToHsl(red, green, blue);
+  l = contrastLightness(l, 1.08, 0.015);
+  s = clamp(s * 1.22 + 0.03, 0, 1);
+
+  if (h > 0.16 && h < 0.44) {
+    h = clamp(h - 0.018, 0, 1);
+    s = clamp(s + 0.08, 0, 1);
+  } else if (h > 0.48 && h < 0.68) {
+    h = clamp(h - 0.025, 0, 1);
+  } else if (h < 0.12) {
+    h = clamp(h + 0.01, 0, 1);
+  }
+
+  let [r, g, b] = hslToRgb(h, s, l);
+  r = posterize(r / 255, stylePresets.nature.levels);
+  g = posterize(g / 255, stylePresets.nature.levels);
+  b = posterize(b / 255, stylePresets.nature.levels);
+  return [r, g, b];
+}
+
+function gradeCinematic(red, green, blue) {
+  const [h, s, l] = rgbToHsl(red, green, blue);
+  const contrast = contrastLightness(l, 1.22, -0.015);
+  let hue = h;
+  let saturation = clamp(s * 1.08 + 0.02, 0, 1);
+
+  if (contrast < 0.42) {
+    hue = 0.52;
+    saturation = clamp(saturation + 0.12, 0, 1);
+  } else if (contrast > 0.62) {
+    hue = h < 0.2 || h > 0.9 ? 0.095 : clamp(h + 0.018, 0, 1);
+    saturation = clamp(saturation + 0.08, 0, 1);
+  } else if (h > 0.45 && h < 0.72) {
+    hue = clamp(h - 0.06, 0, 1);
+  }
+
+  let [r, g, b] = hslToRgb(hue, saturation, contrast);
+  r = posterize(r / 255, stylePresets.cinematic.levels);
+  g = posterize(g / 255, stylePresets.cinematic.levels);
+  b = posterize(b / 255, stylePresets.cinematic.levels);
+  return [r, g, b];
+}
+
+function gradeMono(red, green, blue) {
+  const luminance = contrastLightness((red * 0.299 + green * 0.587 + blue * 0.114) / 255, 1.16, 0.02);
+  const gray = posterize(luminance, stylePresets.mono.levels);
+  return [gray, gray, gray];
+}
+
+function gradePixel(red, green, blue) {
+  switch (state.styleMode) {
+    case "nature":
+      return gradeNature(red, green, blue);
+    case "cinematic":
+      return gradeCinematic(red, green, blue);
+    case "mono":
+      return gradeMono(red, green, blue);
+    default:
+      return gradeMinimal(red, green, blue);
+  }
+}
+
 function colorGrade(imageData) {
   const data = imageData.data;
   for (let index = 0; index < data.length; index += 4) {
-    const [r, g, b] = solarizePixel(data[index], data[index + 1], data[index + 2]);
+    const [r, g, b] = gradePixel(data[index], data[index + 1], data[index + 2]);
     data[index] = r;
     data[index + 1] = g;
     data[index + 2] = b;
@@ -235,9 +380,7 @@ function colorGrade(imageData) {
 }
 
 function drawPixelFrame(image) {
-  const ratio = image.naturalHeight / image.naturalWidth || 0.75;
-  const width = clamp(Math.round(Number(config.pixelWidth) || 128), 48, 320);
-  const height = Math.max(1, Math.round(width * ratio));
+  const { width, height, full } = resolveRenderSize(image);
   const workCanvas = document.createElement("canvas");
   const workContext = workCanvas.getContext("2d", { willReadFrequently: true });
   const targetContext = els.frameCanvas.getContext("2d");
@@ -252,6 +395,7 @@ function drawPixelFrame(image) {
   els.frameCanvas.height = height;
   targetContext.imageSmoothingEnabled = false;
   targetContext.putImageData(graded, 0, 0);
+  updateResolutionLabel(width, height, full);
 }
 
 async function renderFrame() {
@@ -261,6 +405,7 @@ async function renderFrame() {
   if (!frame) {
     els.frameCanvas.style.display = "none";
     els.emptyState.style.display = "grid";
+    updateResolutionPresetLabel();
     updateStats();
     return;
   }
@@ -400,10 +545,27 @@ els.frameSlider.addEventListener("input", (event) => {
 
 els.speedSlider.value = String(state.fps);
 els.speedLabel.value = `${state.fps} fps`;
+els.speedLabel.textContent = `${state.fps} fps`;
 els.speedSlider.addEventListener("input", (event) => {
   state.fps = Number(event.target.value);
   els.speedLabel.value = `${state.fps} fps`;
+  els.speedLabel.textContent = `${state.fps} fps`;
   restartPlayback();
+});
+
+els.resolutionSlider.min = "0";
+els.resolutionSlider.max = String(resolutionPresets.length - 1);
+els.resolutionSlider.value = String(state.resolutionIndex);
+updateResolutionPresetLabel();
+els.resolutionSlider.addEventListener("input", (event) => {
+  state.resolutionIndex = Number(event.target.value);
+  renderFrame();
+});
+
+els.styleSelect.value = state.styleMode;
+els.styleSelect.addEventListener("change", (event) => {
+  state.styleMode = event.target.value;
+  renderFrame();
 });
 
 loadFrames({ keepPosition: false });

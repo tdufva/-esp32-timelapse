@@ -31,6 +31,8 @@ window.TIMELAPSE_CONFIG = {
   frameRate: 8,
   refreshSeconds: 300,
   pixelWidth: 128,
+  defaultResolution: "128",
+  defaultStyle: "minimal",
   solarBrightness: 1.18,
   solarSaturation: 1.35,
   solarLevels: 5
@@ -79,9 +81,16 @@ Ensimmainen kuva otetaan heti kaynnistyksessa. Sen jalkeen moduuli menee deep sl
 
 Oletuksena kamera tallentaa `FRAMESIZE_QVGA`-kuvan ja `JPEG_QUALITY 20` -pakkauksen. Tama pienentaa GitHubiin ladattavia tiedostoja merkittavasti verrattuna XGA/UXGA-kuviin. Jos haluat hieman enemman lahdetarkkuutta, vaihda `esp32_timelapse/config.h`-tiedostossa arvoksi `FRAMESIZE_VGA`.
 
-Sivun pikseliefektia voi saataa `docs/config.js`-tiedostossa:
+Sivulla on kaksi katseluasetusta:
 
-- `pixelWidth`: kasiteltavan kuvan leveys pikseleina. Pienempi arvo tekee isommat pikselit.
+- `Resoluutio`: liukusaadin asteikolla 4 x 6 px -> tayden kuvan resoluutio.
+- `Tyyli`: nelja palettia: minimalistinen, luontodokumentti, cinematic ja mustavalkoinen.
+
+Oletuksia voi saataa `docs/config.js`-tiedostossa:
+
+- `defaultResolution`: aloitusresoluutio. Arvot: `4x6`, `12`, `24`, `48`, `96`, `128`, `256`, `512`, `full`.
+- `defaultStyle`: aloitustyyli. Arvot: `minimal`, `nature`, `cinematic`, `mono`.
+- `pixelWidth`: vanha yhteensopivuusasetus aloitusresoluutiolle, jos `defaultResolution` puuttuu.
 - `solarBrightness`: kirkkauden kerroin.
 - `solarSaturation`: varien voimakkuuden kerroin.
 - `solarLevels`: varien posterointitasot. Pienempi arvo tekee graafisemman ja minimalistisemman kuvan.

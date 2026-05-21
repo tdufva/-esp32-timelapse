@@ -105,13 +105,16 @@ h1 {
   color: var(--muted);
   font-size: 0.92rem;
   flex-wrap: wrap;
+  max-width: 100%;
 }
 
 .status-strip span {
+  min-width: 0;
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.74);
+  overflow-wrap: anywhere;
 }
 
 .status-dot {
@@ -189,6 +192,7 @@ h1 {
 }
 
 input[type="range"] {
+  min-width: 0;
   width: 100%;
   accent-color: var(--accent);
 }
@@ -201,6 +205,7 @@ input[type="range"] {
 }
 
 .control-panel {
+  min-width: 0;
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -209,8 +214,9 @@ input[type="range"] {
 
 .controls {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
+  min-width: 0;
 }
 
 .icon-button {
@@ -257,21 +263,42 @@ input[type="range"] {
   display: block;
 }
 
-.speed-control {
+.speed-control,
+.setting-control {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 8px 12px;
   color: var(--muted);
   font-size: 0.92rem;
+  min-width: 0;
 }
 
-.speed-control input {
+.speed-control input,
+.setting-control input,
+.setting-control select {
   grid-column: 1 / -1;
 }
 
-.speed-control output {
+.speed-control output,
+.setting-control output {
   color: var(--text);
   font-weight: 700;
+}
+
+.setting-control select {
+  min-width: 0;
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0 10px;
+}
+
+.setting-control select:focus-visible {
+  outline: 3px solid rgba(20, 125, 114, 0.26);
+  outline-offset: 2px;
 }
 
 .stat-grid {
@@ -346,7 +373,17 @@ input[type="range"] {
   }
 
   .controls {
-    grid-template-columns: repeat(4, minmax(48px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .status-strip {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    width: 100%;
+  }
+
+  #latestFrame {
+    grid-column: 1 / -1;
   }
 
   .timeline-row {

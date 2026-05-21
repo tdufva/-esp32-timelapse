@@ -6,6 +6,8 @@ window.TIMELAPSE_CONFIG = {
   frameRate: 8,
   refreshSeconds: 300,
   pixelWidth: 128,
+  defaultResolution: "128",
+  defaultStyle: "minimal",
   solarBrightness: 1.18,
   solarSaturation: 1.35,
   solarLevels: 5

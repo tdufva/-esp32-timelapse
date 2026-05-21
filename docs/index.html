@@ -4,9 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ESP32 Timelapse</title>
-    <link rel="stylesheet" href="styles.css?v=20260519-pixel">
-    <script src="config.js?v=20260519-pixel"></script>
-    <script src="app.js?v=20260519-pixel" defer></script>
+    <link rel="stylesheet" href="styles.css?v=20260521-controls">
+    <script src="config.js?v=20260521-controls"></script>
+    <script src="app.js?v=20260521-controls" defer></script>
   </head>
   <body>
     <main class="app-shell">
@@ -72,6 +72,22 @@
             <span>Nopeus</span>
             <input id="speedSlider" type="range" min="1" max="24" value="8">
             <output id="speedLabel" for="speedSlider">8 fps</output>
+          </label>
+
+          <label class="setting-control">
+            <span>Resoluutio</span>
+            <input id="resolutionSlider" type="range" min="0" max="8" value="5">
+            <output id="resolutionLabel" for="resolutionSlider">128 x 96 px</output>
+          </label>
+
+          <label class="setting-control">
+            <span>Tyyli</span>
+            <select id="styleSelect">
+              <option value="minimal">Minimalistinen</option>
+              <option value="nature">Luontodokumentti</option>
+              <option value="cinematic">Cinematic</option>
+              <option value="mono">Mustavalkoinen</option>
+            </select>
           </label>
 
           <dl class="stat-grid">

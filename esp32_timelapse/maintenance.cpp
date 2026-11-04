@@ -165,7 +165,8 @@ static esp_err_t infoHandler(httpd_req_t *request) {
   JsonDocument document;
   document["firmwareVersion"] = TIMELAPSE_VERSION;
   char elfHash[65];
-  esp_app_get_elf_sha256(elfHash, sizeof(elfHash));
+  const esp_app_desc_t *description = esp_app_get_description();
+  for (size_t i = 0; i < 32; i++) snprintf(elfHash + i * 2, 3, "%02x", description->app_elf_sha256[i]);
   document["elfSha256"] = elfHash;
   document["family"] = TIMELAPSE_OTA_FAMILY;
   document["csrfToken"] = csrfToken;

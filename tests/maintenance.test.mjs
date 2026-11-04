@@ -13,8 +13,10 @@ test('OTA preflight rejects truncated, wrong-chip, oversized and unrelated image
   image[0] = 0xe9;
   image.writeUInt32LE(0xabcd5432, 32);
   image.write(OTA_FAMILY, 300);
+  image.fill(0xab, 176, 208);
   assert.equal(parseFirmware(image).bytes, 512);
   assert.equal(parseFirmware(image).sha256.length, 64);
+  assert.equal(parseFirmware(image).elfSha256, 'ab'.repeat(32));
   assert.throws(() => parseFirmware(image.subarray(0, 100)));
   assert.throws(() => parseFirmware(Buffer.alloc(OTA_SLOT_BYTES + 1)));
   const wrongChip = Buffer.from(image); wrongChip.writeUInt16LE(9, 12);

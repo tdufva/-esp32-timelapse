@@ -156,7 +156,7 @@ Kirjastot on versiokiinnitetty ja toimitetaan `docs/vendor`-kansiossa lisenssein
 
 ## HTTPS-huolto ja OTA
 
-Huolto on suljettu normaalin kuvauksen aikana. Se avautuu kertakayttoisella GitHub-huoltopyynnolla seuraavalla verkkoyhteydellisella heratyksella enintaan 10 minuutiksi. Kameraa ei siis tarvitse pitaa jatkuvasti paalla. Uusi pyynto voidaan tehda paivittamatta ohjelmaa.
+Huolto on suljettu normaalin kuvauksen aikana. Se avautuu kertakayttoisella GitHub-huoltopyynnolla seuraavalla verkkoyhteydellisella heratyksella 10 minuutiksi. Kesken olevan paivityksen ja uudelleenkaynnistyksen ajaksi aikaa voidaan jatkaa. Huollon aikana kuvaus on tauolla. Kameraa ei tarvitse pitaa jatkuvasti paalla. Uusi pyynto voidaan tehda paivittamatta ohjelmaa.
 
 Tarvitset Node.js 22+:n, OpenSSL:n seka kaannokseen Arduino CLI:n, esp32-ytimen 3.3.12 ja ArduinoJson 7:n. Aja komennot projektin juuresta:
 
@@ -186,7 +186,7 @@ node tools/maintenance.mjs finish
 
 Jos `.local`-nimipalvelu ei toimi, anna lisaksi `--address 192.168.x.x` laitteen oikealla lahiverkko-IP:lla. Varmenne tarkistetaan silti laitenimea vasten. Komennot eivat lisaa tunnuksia julkiselle sivulle tai URL-osoitteeseen. GitHub-token luetaan paikallisesta `config.h`:sta vain huoltopyynnon tekemiseen.
 
-Pidata `.secrets/maintenance.json` turvallisessa varmuuskopiossa. `init` ei korvaa olemassa olevaa tunnusta tai varmennetta. Huollon salasana ja avain paketoidaan ohitettuun `maintenance_secrets.h`:hon. Jos tata tiedostoa ei ole, ohjelma kaantyy ilman huoltoa. Ala koskaan committaa naita salaisuuksia GitHubiin.
+Sailyta `.secrets/maintenance.json` turvallisessa varmuuskopiossa. `init` ei korvaa olemassa olevaa tunnusta tai varmennetta. Huollon salasana ja avain paketoidaan ohitettuun `maintenance_secrets.h`:hon. Jos tata tiedostoa ei ole, ohjelma kaantyy ilman huoltoa. Ala koskaan committaa naita salaisuuksia GitHubiin.
 
 ## Paiva/yoajastus
 
@@ -215,4 +215,4 @@ node tests/maintenance-browser.mjs
 
 Muuttujat `TEST_BASE_URL`, `TEST_OUTPUT_DIR` ja `PLAYWRIGHT_MODULE` voivat vaihtaa palvelimen, tuloshakemiston ja Playwrightin moduulipolun. Testit tarkistavat paivamaarat, tilan, rajaukset, varityylit, pikseliresoluution, toiston, MP4:n ruutumaaran ja keston, GIF-viennin seka keskeytyksen tietokone- ja puhelinnakymissa.
 
-Kameraohjelma on kaannostestattu Espressif-ytimella 3.3.12. Laitetestissa varmista viela SD-kortin jonon purku ja tilatiedoston julkaisu. Katkaise verkko yhdeksi kuvauskierrokseksi ja palauta se seuraavaksi: kortille jaaneen kuvan tulee saapua myohemmin ilman GitHub-kaksoiskappaleita. Ohjelma on ladattava moduuliin ennen kuin nama kameraominaisuudet ovat kaytossa.
+Kameraohjelma 3.0.0 on kaannos- ja laitetestattu Espressif-ytimella 3.3.12 AI Thinker ESP32-CAMilla. Laitetestissa varmistettiin HTTPS-varmenne, kirjautuminen, CSRF-suoja, virheellisen ohjelman ja vaaran SHA-256-tiivisteen hylkays, Wi-Fi-OTA molempiin ohjelmapaikkoihin, ohjelman koko 64-merkkinen tunniste, NVS-ajastuksen sailyminen, SD-jonon purku ja tilatiedoston julkaisu. Myos kameran omaa huoltosivua kokeiltiin selaimella 1280, 390 ja 320 pikselin leveyksilla. Pitkan aikavalin koekaytossa kannattaa viela katkaista verkko yhdeksi kuvauskierrokseksi ja palauttaa se seuraavaksi: jonoon jaaneen kuvan tulee saapua myohemmin ilman kaksoiskappaleita.

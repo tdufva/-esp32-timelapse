@@ -4,9 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ESP32 Timelapse</title>
-    <link rel="stylesheet" href="styles.css?v=20261104">
-    <script src="config.js?v=20261104"></script>
-    <script type="module" src="app.js?v=20261104"></script>
+    <link rel="stylesheet" href="styles.css?v=20261104-3">
+    <script src="config.js?v=20261104-3"></script>
+    <script type="module" src="app.js?v=20261104-3"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -24,6 +24,10 @@
           <div><dt>Seuraava kuva, arvio</dt><dd id="cameraNext">—</dd></div>
           <div><dt>Ohjelmaversio</dt><dd id="cameraFirmware">—</dd></div>
         </dl>
+        <div class="camera-service">
+          <dl class="schedule-summary"><div><dt><i data-lucide="sun" class="icon" aria-hidden="true"></i>Päivä <span id="scheduleDayHours"></span></dt><dd id="scheduleDay">—</dd></div><div><dt><i data-lucide="moon" class="icon" aria-hidden="true"></i>Yö</dt><dd id="scheduleNight">—</dd></div></dl>
+          <div class="maintenance-actions"><span id="maintenanceState">Huolto ei käytössä</span><a id="maintenanceLink" class="command-button" target="_blank" rel="noopener noreferrer" hidden><i data-lucide="wrench" class="icon" aria-hidden="true"></i>Avaa huolto</a></div>
+        </div>
         <p id="cameraNote" class="camera-note" aria-live="polite">Odottaa tilatietoja</p>
       </details>
       <section class="range-toolbar" aria-label="Aikaväli">
@@ -52,6 +56,7 @@
           <label class="speed-control"><span>Nopeus</span><input id="speedSlider" type="range" min="1" max="24" value="8"><output id="speedLabel" for="speedSlider">8 fps</output></label>
           <label class="setting-control"><span>Resoluutio</span><input id="resolutionSlider" type="range" min="0" max="8" value="5"><output id="resolutionLabel" for="resolutionSlider">128 × 96 px</output></label>
           <label class="setting-control"><span>Tyyli</span><select id="styleSelect"><option value="minimal">Minimalistinen</option><option value="nature">Luontodokumentti</option><option value="cinematic">Cinematic</option><option value="mono">Mustavalkoinen</option></select></label>
+          <fieldset class="palette-field"><legend>Väripaletti</legend><div id="paletteControls" class="segmented" role="group" aria-label="Väripaletti"><button type="button" data-palette="original" aria-pressed="false">Vapaa</button><button type="button" data-palette="8" aria-pressed="false">8 väriä</button><button type="button" data-palette="16" aria-pressed="true">16 väriä</button></div><div id="palettePreview" class="palette-preview" aria-hidden="true"></div></fieldset>
           <button id="exportOpen" class="command-button primary" type="button" disabled><i data-lucide="download" class="icon" aria-hidden="true"></i>Vie video</button>
           <dl class="stat-grid"><div><dt>Ensimmäinen</dt><dd id="firstDate">—</dd></div><div><dt>Viimeisin</dt><dd id="lastDate">—</dd></div><div><dt>Kansio</dt><dd id="pathValue">photos</dd></div></dl>
         </aside>

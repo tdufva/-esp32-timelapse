@@ -1,2 +1,6 @@
 .DS_Store
 esp32_timelapse/config.h
+.secrets/
+esp32_timelapse/maintenance_secrets.h
+*.bin
+build/

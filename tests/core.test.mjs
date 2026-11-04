@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dateKey, shiftDateKey, parseFrameDate, presetRange, filterFrames, calendarCells, cameraHealth, normalizeStatus } from '../docs/timelapse-core.mjs';
+import { dateKey, shiftDateKey, parseFrameDate, presetRange, filterFrames, calendarCells, cameraHealth, normalizeStatus, normalizeSchedule } from '../docs/timelapse-core.mjs';
 import { exportTimelapse } from '../docs/export.mjs';
 
 const now = new Date('2026-11-04T10:00:00Z');
@@ -50,6 +50,22 @@ test('malformed telemetry cannot introduce invalid dates or objects into the UI'
   assert.equal(status.firmwareVersion, '');
   assert.equal(status.pendingUploads, -1);
   assert.equal(status.error, '');
+});
+test('scheduled night pauses stay healthy until the next capture is actually overdue', () => {
+  const status = { updatedAt: now.getTime() / 1000 - 7200, nextCaptureAt: now.getTime() / 1000 + 3600, captureIntervalMinutes: 60, capturePeriod: 'paused' };
+  assert.equal(cameraHealth(status, null, now).label, 'Yötauko');
+  assert.equal(cameraHealth(status, null, new Date(now.getTime() + 7200000)).level, 'stale');
+  assert.equal(cameraHealth({ ...status, nextCaptureAt: status.updatedAt + 1e9 }, null, now).level, 'stale');
+});
+test('schedule and maintenance telemetry are validated before building a local link', () => {
+  const schedule = { dayStart: '07:00', nightStart: '22:00', dayIntervalMinutes: 60, nightIntervalMinutes: 180, nightEnabled: true };
+  assert.deepEqual(normalizeSchedule(schedule), schedule);
+  assert.equal(normalizeSchedule({ ...schedule, dayStart: '25:00' }), null);
+  assert.equal(normalizeSchedule({ ...schedule, dayIntervalMinutes: '60' }), null);
+  assert.equal(normalizeSchedule({ ...schedule, nightStart: schedule.dayStart }), null);
+  const status = normalizeStatus({ schemaVersion: 1, schedule, maintenance: { configured: true, active: true, hostname: 'attacker.example/' } });
+  assert.equal(status.maintenance.hostname, '');
+  assert.deepEqual(status.schedule, schedule);
 });
 test('exports reject empty ranges and invalid formats before touching the canvas', async () => {
   await assert.rejects(exportTimelapse({ frames: [], fps: 8, format: 'gif' }), /ei ole kuvia/);

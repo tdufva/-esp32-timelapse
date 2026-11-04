@@ -12,8 +12,12 @@
 #include "esp_sleep.h"
 #include "esp_sntp.h"
 #include <string.h>
+#include <algorithm>
 
 #include "config.h"
+#include "firmware_identity.h"
+#include "schedule_storage.h"
+#include "maintenance.h"
 
 // Pin map for the common AI Thinker ESP32-CAM module.
 #define CAMERA_MODEL_AI_THINKER
@@ -52,7 +56,10 @@ RTC_DATA_ATTR uint32_t bootCount = 0;
 #define GITHUB_STATUS_PATH "status"
 #endif
 
-static const char *FIRMWARE_VERSION = "2.0.1";
+static const char *FIRMWARE_VERSION = TIMELAPSE_VERSION;
+static CaptureSchedule captureSchedule;
+static bool clockAvailable = false;
+static time_t plannedWakeAt = 0;
 static const char *OUTBOX_PATH = "/outbox";
 static const char *LOCAL_STATUS_PATH = "/camera-status.json";
 static String lastCapturedFile;
@@ -586,8 +593,8 @@ class MetadataBuffer : public Stream {
   void flush() override {}
 };
 
-bool readGitHubSha(const String &repoPath, String &sha) {
-  sha = String();
+bool readGitHubMetadata(const String &repoPath, JsonDocument &document, JsonDocument &filter, bool &found) {
+  found = false;
   WiFiClientSecure client;
 #if VERIFY_GITHUB_TLS
   client.setCACert(GITHUB_ROOT_CA);
@@ -606,13 +613,11 @@ bool readGitHubSha(const String &repoPath, String &sha) {
   http.addHeader("Authorization", String("Bearer ") + GITHUB_TOKEN);
   http.addHeader("Accept", "application/vnd.github+json");
   http.addHeader("User-Agent", "esp32-cam-timelapse");
+  http.addHeader("X-GitHub-Api-Version", "2022-11-28");
   int code = http.GET();
   lastHttpStatus = code;
   if (code == 404) { http.end(); return true; }
   if (code != 200) { http.end(); return false; }
-  JsonDocument filter;
-  filter["sha"] = true;
-  JsonDocument document;
   MetadataBuffer body;
   int read = http.writeToStream(&body);
   if (read < 0) {
@@ -622,9 +627,39 @@ bool readGitHubSha(const String &repoPath, String &sha) {
   }
   auto error = deserializeJson(document, body.value, DeserializationOption::Filter(filter));
   if (error) Serial.printf("GitHub metadata JSON error: %s\n", error.c_str());
-  if (!error) sha = document["sha"].as<String>();
   http.end();
-  return !error && sha.length() == 40;
+  found = !error;
+  return !error;
+}
+
+bool readGitHubSha(const String &repoPath, String &sha) {
+  sha = String();
+  JsonDocument filter;
+  filter["sha"] = true;
+  JsonDocument document;
+  bool found = false;
+  if (!readGitHubMetadata(repoPath, document, filter, found)) return false;
+  if (!found) return true;
+  sha = document["sha"].as<String>();
+  return sha.length() == 40;
+}
+
+void processMaintenanceRequest() {
+  if (!maintenanceConfigured()) return;
+  JsonDocument filter;
+  filter["content"] = true;
+  filter["encoding"] = true;
+  JsonDocument metadata;
+  bool found = false;
+  if (!readGitHubMetadata(String("control/") + CAMERA_NAME + ".json", metadata, filter, found) || !found) return;
+  String content = metadata["content"].as<String>();
+  if (metadata["encoding"] != "base64" || content.length() > 6000) return;
+  uint8_t decoded[4096];
+  size_t size = 0;
+  if (mbedtls_base64_decode(decoded, sizeof(decoded), &size, reinterpret_cast<const uint8_t *>(content.c_str()), content.length()) != 0) return;
+  JsonDocument control;
+  if (deserializeJson(control, decoded, size) || control["schemaVersion"] != 1 || !control["requestId"].is<String>() || !control["expiresAt"].is<uint32_t>()) return;
+  if (acceptMaintenanceRequest(control["requestId"].as<String>(), control["expiresAt"], time(nullptr))) Serial.println("Maintenance request accepted");
 }
 
 String gitBlobSha(File &file) {
@@ -711,13 +746,21 @@ void loadLocalStatus() {
 
 void publishStatus(bool sdReady, bool wifiReady, bool clockReady) {
   JsonDocument document;
-  uint32_t now = clockReady ? static_cast<uint32_t>(time(nullptr)) : 0;
+  uint32_t now = clockAvailable ? static_cast<uint32_t>(time(nullptr)) : 0;
   document["schemaVersion"] = 1;
   document["camera"] = CAMERA_NAME;
   document["firmwareVersion"] = FIRMWARE_VERSION;
   document["updatedAt"] = now;
-  document["captureIntervalMinutes"] = CAPTURE_INTERVAL_MINUTES;
-  document["nextCaptureAt"] = now ? now + CAPTURE_INTERVAL_MINUTES * 60 : 0;
+  const char *period = now ? capturePeriodAt(now, captureSchedule) : "unknown";
+  document["captureIntervalMinutes"] = strcmp(period, "night") == 0 ? captureSchedule.nightInterval : captureSchedule.dayInterval;
+  document["capturePeriod"] = period;
+  document["nextCaptureAt"] = now ? static_cast<uint32_t>(plannedWakeAt) : 0;
+  writeCaptureSchedule(document["schedule"].to<JsonObject>(), captureSchedule);
+  JsonObject maintenance = document["maintenance"].to<JsonObject>();
+  maintenance["configured"] = maintenanceConfigured();
+  maintenance["active"] = now && maintenanceActive(now);
+  maintenance["endsAt"] = now && maintenanceActive(now) ? maintenanceEndsAt() : 0;
+  maintenance["hostname"] = maintenanceHostname();
   document["lastCaptureAt"] = lastCaptureAt;
   document["lastUploadAt"] = lastUploadAt;
   document["lastCapturedFile"] = lastCapturedFile;
@@ -759,36 +802,50 @@ void publishStatus(bool sdReady, bool wifiReady, bool clockReady) {
 }
 
 void goToSleep() {
-  Serial.printf("Sleeping for %llu minute(s)\n", CAPTURE_INTERVAL_MINUTES);
+  uint64_t seconds = CAPTURE_INTERVAL_MINUTES * 60ULL;
+  if (clockAvailable && plannedWakeAt > 0) seconds = static_cast<uint64_t>(std::max<time_t>(1, plannedWakeAt - time(nullptr)));
+  Serial.printf("Sleeping for %llu second(s)\n", seconds);
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
-  esp_sleep_enable_timer_wakeup(CAPTURE_INTERVAL_MINUTES * 60ULL * 1000000ULL);
+  esp_sleep_enable_timer_wakeup(seconds * 1000000ULL);
   delay(200);
   esp_deep_sleep_start();
 }
 
 void setup() {
   Serial.begin(115200);
+  pinMode(LED_GPIO_NUM, OUTPUT);
+  digitalWrite(LED_GPIO_NUM, LOW);
   delay(1000);
   bootCount++;
+  setenv("TZ", TIMEZONE, 1);
+  tzset();
   Serial.printf("\nESP32-CAM timelapse boot #%lu\n", static_cast<unsigned long>(bootCount));
 
   bool sdReady = initSdCard();
   if (sdReady) { initOutbox(); loadLocalStatus(); }
   else noteError("sd_unavailable");
-  bool cameraReady = initCamera();
-  if (!cameraReady) noteError("camera_init_failed");
+  captureSchedule = loadCaptureSchedule();
+  loadMaintenanceState();
 
   bool wifiReady = connectWiFi();
   if (!wifiReady) noteError("wifi_unavailable");
   bool timeReady = wifiReady ? syncClock() : false;
+  clockAvailable = timeReady || time(nullptr) >= 1700000000;
   if (!timeReady) noteError("clock_unavailable");
+  if (timeReady) processMaintenanceRequest();
+  time_t now = clockAvailable ? time(nullptr) : 0;
+  bool captureDue = !clockAvailable || !maintenanceActive(now) || !lastCaptureAt || now >= nextScheduledCapture(lastCaptureAt, captureSchedule);
+  bool allowed = !clockAvailable || captureAllowedAt(now, captureSchedule);
+  bool cameraReady = captureDue && allowed && initCamera();
+  if (captureDue && allowed && !cameraReady) noteError("camera_init_failed");
 
-  String fileName = makeFileName(timeReady);
+  String fileName = makeFileName(clockAvailable);
   camera_fb_t *frame = cameraReady ? capturePhoto() : nullptr;
+  bool captured = frame != nullptr;
   if (frame) {
     lastCapturedFile = fileName;
-    lastCaptureAt = timeReady ? static_cast<uint32_t>(time(nullptr)) : 0;
+    lastCaptureAt = clockAvailable ? static_cast<uint32_t>(time(nullptr)) : 0;
     bool saved = sdReady && savePhotoToSd(fileName, frame->buf, frame->len);
     if (!saved) {
       noteError("sd_save_failed");
@@ -802,8 +859,14 @@ void setup() {
   if (cameraReady) esp_camera_deinit();
   pinMode(PWDN_GPIO_NUM, OUTPUT);
   digitalWrite(PWDN_GPIO_NUM, HIGH);
-  if (sdReady && wifiReady && timeReady) flushOutbox(timeReady, frame ? fileName : String());
+  if (sdReady && wifiReady && timeReady) flushOutbox(timeReady, captured ? fileName : String());
+  plannedWakeAt = clockAvailable ? nextScheduledCapture(time(nullptr), captureSchedule) : 0;
   publishStatus(sdReady, wifiReady, timeReady);
+  if (timeReady && maintenanceActive(time(nullptr))) {
+    if (!runMaintenance(captureSchedule)) noteError("maintenance_start_failed");
+    plannedWakeAt = nextScheduledCapture(time(nullptr), captureSchedule);
+    publishStatus(sdReady, wifiReady, timeReady);
+  }
   goToSleep();
 }
 

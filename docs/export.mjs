@@ -2,7 +2,7 @@ function checkAbort(signal) {
   if (signal?.aborted) throw new DOMException('Vienti keskeytetty', 'AbortError');
 }
 
-export async function exportTimelapse({ frames, fps, format, render, signal, onProgress = () => {} }) {
+export async function exportTimelapse({ frames, fps, format, render, signal, paletteColors = null, onProgress = () => {} }) {
   if (!frames.length) throw new Error('Valitulla aikavälillä ei ole kuvia.');
   if (!Number.isFinite(fps) || fps < 1 || fps > 24) throw new Error('Virheellinen kuvanopeus.');
   if (!['mp4', 'gif'].includes(format)) throw new Error('Tuntematon tiedostomuoto.');
@@ -26,14 +26,28 @@ export async function exportTimelapse({ frames, fps, format, render, signal, onP
     context.drawImage(source, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
   }
   if (format === 'gif') {
-    const { GIFEncoder, quantize, applyPalette } = await import('./vendor/gifenc.mjs');
+    const { GIFEncoder, quantize, applyPalette, nearestColorIndex } = await import('./vendor/gifenc.mjs');
     const gif = GIFEncoder();
+    const fixedIndices = new Map((paletteColors || []).map((rgb, index) => [(rgb[0] << 16) | (rgb[1] << 8) | rgb[2], index]));
     for (let index = 0; index < frames.length; index++) {
       checkAbort(signal);
       draw(index === 0 ? first : await render(frames[index], signal));
       const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
-      const palette = quantize(data, 256);
-      gif.writeFrame(applyPalette(data, palette), canvas.width, canvas.height, { palette, delay: 1000 / fps, repeat: 0 });
+      const palette = paletteColors || quantize(data, 256);
+      let indexed;
+      if (paletteColors) {
+        indexed = new Uint8Array(data.length / 4);
+        for (let offset = 0; offset < data.length; offset += 4) {
+          const rgb = (data[offset] << 16) | (data[offset + 1] << 8) | data[offset + 2];
+          let color = fixedIndices.get(rgb);
+          if (color === undefined) {
+            color = nearestColorIndex(palette, [data[offset], data[offset + 1], data[offset + 2]]);
+            if (fixedIndices.size < 8192) fixedIndices.set(rgb, color);
+          }
+          indexed[offset / 4] = color;
+        }
+      } else indexed = applyPalette(data, palette);
+      gif.writeFrame(indexed, canvas.width, canvas.height, { palette: !paletteColors || index === 0 ? palette : undefined, delay: 1000 / fps, repeat: 0 });
       onProgress((index + 1) / frames.length);
       await new Promise((resolve) => setTimeout(resolve, 0));
     }

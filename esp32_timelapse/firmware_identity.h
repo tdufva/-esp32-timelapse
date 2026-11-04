@@ -1,0 +1,3 @@
+#pragma once
+#define TIMELAPSE_VERSION "3.0.0"
+#define TIMELAPSE_OTA_FAMILY "ESP32_TIMELAPSE_OTA_V3"

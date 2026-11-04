@@ -37,6 +37,17 @@ export function createDashboard({ getFrames, getSettings, applyRange, renderExpo
     $('cameraStorage').textContent = status?.sdReady === false ? 'Ei käytettävissä' : Number.isFinite(status?.sdFreeBytes) ? `${(status.sdFreeBytes / 1e9).toLocaleString('fi-FI', { maximumFractionDigits: 2 })} Gt` : '—';
     $('cameraNext').textContent = formatTime(status?.nextCaptureAt);
     $('cameraFirmware').textContent = status?.firmwareVersion || '—';
+    const schedule = status?.schedule;
+    const intervalLabel = (minutes) => minutes % 60 === 0 ? `${minutes / 60} h välein` : `${minutes} min välein`;
+    $('scheduleDayHours').textContent = schedule ? `${schedule.dayStart}–${schedule.nightStart}` : '';
+    $('scheduleDay').textContent = schedule ? intervalLabel(schedule.dayIntervalMinutes) : '—';
+    $('scheduleNight').textContent = schedule ? schedule.nightEnabled ? intervalLabel(schedule.nightIntervalMinutes) : 'Kuvaus tauolla' : '—';
+    const maintenance = status?.maintenance;
+    const active = maintenance?.active && maintenance.endsAt * 1000 > Date.now();
+    $('maintenanceState').textContent = active ? `Huolto avoinna ${formatTime(maintenance.endsAt)} asti` : maintenance?.configured ? 'Huolto suljettu' : 'Huolto ei käytössä';
+    $('maintenanceLink').hidden = !active || !maintenance.hostname;
+    if (active && maintenance.hostname) $('maintenanceLink').href = `https://${maintenance.hostname}/`;
+    else $('maintenanceLink').removeAttribute('href');
     const errors = String(status?.error || '').split(';').filter(Boolean).map((code) => errorLabels[code] || (code.startsWith('upload_http_') ? `Lähetysvirhe HTTP ${code.slice(12)}` : code)).join(' · ');
     $('cameraNote').textContent = statusError || errors || (health.available ? `Tilatieto ${formatTime(status.updatedAt)}${Number.isFinite(status.wifiRssi) ? ` · Wi-Fi ${status.wifiRssi} dBm` : ''}` : 'Odottaa kameraohjelman tilatietoja');
   }
@@ -115,7 +126,7 @@ export function createDashboard({ getFrames, getSettings, applyRange, renderExpo
   $('exportOpen').addEventListener('click', () => {
     const settings = getSettings();
     $('exportFps').value = settings.fps;
-    $('exportSummary').textContent = `${settings.styleLabel} · ${settings.resolutionLabel}`;
+    $('exportSummary').textContent = `${settings.styleLabel} · ${settings.resolutionLabel} · ${settings.paletteLabel}`;
     $('exportMessage').textContent = '';
     $('exportProgress').hidden = true;
     updateExportDuration();
@@ -143,7 +154,7 @@ export function createDashboard({ getFrames, getSettings, applyRange, renderExpo
     $('exportProgress').value = 0;
     $('exportMessage').textContent = 'Valmistellaan…';
     try {
-      const blob = await exportTimelapse({ frames, fps, format, signal: controller.signal,
+      const blob = await exportTimelapse({ frames, fps, format, paletteColors: settings.paletteColors, signal: controller.signal,
         render: (frame, signal) => renderExport(frame, settings, signal),
         onProgress: (progress) => {
           $('exportProgress').value = progress;

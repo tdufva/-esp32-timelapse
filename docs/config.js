@@ -1,4 +1,5 @@
 window.TIMELAPSE_CONFIG = {
+  defaultPalette: "16",
   timeZone: "Europe/Helsinki",
   cameraStatusPath: "status/esp32cam.json",
   owner: "tdufva",

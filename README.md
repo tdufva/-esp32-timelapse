@@ -1,13 +1,14 @@
 # ESP32-CAM timelapse GitHub Pagesiin
 
-Tama projekti tekee ESP32-CAM-moduulista tuntivalein kuvaavan timelapse-kameran:
+Tama projekti tekee ESP32-CAM-moduulista ajastetun timelapse-kameran:
 
-- ESP32-CAM ottaa kuvan kerran tunnissa.
+- ESP32-CAM kuvaa oletuksena paivalla 07-22 tunnin valein ja yolla kolmen tunnin valein.
 - Kuva tallennetaan microSD-kortille kansioon `/photos`.
 - Jos Wi-Fi toimii, sama kuva lahetetaan GitHub-repon `photos/`-kansioon.
 - GitHub Pages -sivu hakee `photos/`-kansion kuvat, pikseloi ne selaimessa ja toistaa ne solar punk -savytettyna timelapsena.
 - Kameraohjelma 2.0 jonottaa kuvat SD-kortille ja julkaisee tilatiedot.
 - Sivulla on paivakalenteri, aikavalin rajaus ja MP4/GIF-vienti.
+- Versio 3.0 lisaa suojatun HTTPS-huollon, OTA-paivitykset, pysyvan paiva/yoajastuksen ja yhtenaiset 8/16-varipaletit.
 
 ## Tiedostot
 
@@ -35,6 +36,7 @@ window.TIMELAPSE_CONFIG = {
   pixelWidth: 128,
   defaultResolution: "128",
   defaultStyle: "minimal",
+  defaultPalette: "16",
   solarBrightness: 1.18,
   solarSaturation: 1.35,
   solarLevels: 5
@@ -68,6 +70,7 @@ https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32
    Asenna myos Library Managerista `ArduinoJson` (versio 7; testattu 7.4.3).
 4. Valitse boardiksi yleensa **AI Thinker ESP32-CAM**.
 5. Jos valikossa on PSRAM-asetus, laita PSRAM paalle.
+   Valitse Partition Scheme: **Minimal SPIFFS (1.9MB APP with OTA/128KB SPIFFS)** (`min_spiffs`). OTA ei toimi vanhalla `huge_app`-asettelulla.
 6. Kopioi asetuspohja:
 
 ```sh
@@ -76,23 +79,25 @@ cp esp32_timelapse/config.h.example esp32_timelapse/config.h
 
 7. Tayta `config.h`: Wi-Fi, GitHub owner, repo, branch ja token.
 8. Laita microSD-kortti moduuliin. FAT32 on varmin valinta.
-9. Lataa sketch moduuliin Arduinon kautta.
+9. Luo huollon yksityiset tunnukset alla kuvatulla `init`-komennolla ja lataa sketch moduuliin Arduinon kautta. Ensimmainen OTA-version lataus on tehtava USB:lla, jotta myos osiotaulu vaihtuu. Ala kayta koko flashin tyhjennysta: NVS-asetukset ja SD-kortin kuvat sailyvat.
 
-Ensimmainen kuva otetaan heti kaynnistyksessa. Sen jalkeen moduuli menee deep sleep -tilaan ja heraa tunnin valein.
+Kaynnistyksessa kuvataan heti, jos ajastus sallii kuvauksen. Sen jalkeen moduuli nukkuu seuraavaan ajastettuun kellonaikaan. Huoltopaivityksen jalkeinen uudelleenkaynnistys ei ota ylimaaraisia kuvia, ellei seuraava kuvausaika ole jo tullut.
 
 ## Pikselityyli ja tiedostokoko
 
 Oletuksena kamera tallentaa `FRAMESIZE_QVGA`-kuvan ja `JPEG_QUALITY 20` -pakkauksen. Tama pienentaa GitHubiin ladattavia tiedostoja merkittavasti verrattuna XGA/UXGA-kuviin. Jos haluat hieman enemman lahdetarkkuutta, vaihda `esp32_timelapse/config.h`-tiedostossa arvoksi `FRAMESIZE_VGA`.
 
-Sivulla on kaksi katseluasetusta:
+Sivun katseluasetukset:
 
 - `Resoluutio`: liukusaadin asteikolla 4 x 6 px -> tayden kuvan resoluutio.
 - `Tyyli`: nelja palettia: minimalistinen, luontodokumentti, cinematic ja mustavalkoinen.
+- `Varipaletti`: vapaa, 8 tai 16 varia. Kiintea paletti pysyy samana kaikissa ruuduissa ja GIF-viennissa. Mustavalkoisessa kaytetaan harmaasavyja. MP4:n haviollinen pakkaus voi hieman muuttaa savyja.
 
 Oletuksia voi saataa `docs/config.js`-tiedostossa:
 
 - `defaultResolution`: aloitusresoluutio. Arvot: `4x6`, `12`, `24`, `48`, `96`, `128`, `256`, `512`, `full`.
 - `defaultStyle`: aloitustyyli. Arvot: `minimal`, `nature`, `cinematic`, `mono`.
+- `defaultPalette`: `original`, `8` tai `16` (oletus).
 - `pixelWidth`: vanha yhteensopivuusasetus aloitusresoluutiolle, jos `defaultResolution` puuttuu.
 - `solarBrightness`: kirkkauden kerroin.
 - `solarSaturation`: varien voimakkuuden kerroin.
@@ -147,12 +152,55 @@ Kalenterissa nakyvat paivittaiset kuvamaarat. Pikavalinnat ovat kaikki kuvat, ta
 - Vienti voidaan keskeyttaa. Kuvaus kamerassa jatkuu viennista riippumatta.
 - Pienempi katseluresoluutio ei muuta SD-kortilla tai GitHubissa olevien alkuperaisten JPEG-tiedostojen kokoa.
 
-Kirjastot on versiokiinnitetty ja toimitetaan `docs/vendor`-kansiossa lisensseineen. Tavallinen katselu ei lataa mediakirjastoja.
+Kirjastot on versiokiinnitetty ja toimitetaan `docs/vendor`-kansiossa lisensseineen. GIF:n varivalinta kayttaa gifenc-kirjastoa; MP4-kirjasto ladataan vasta vientia varten.
+
+## HTTPS-huolto ja OTA
+
+Huolto on suljettu normaalin kuvauksen aikana. Se avautuu kertakayttoisella GitHub-huoltopyynnolla seuraavalla verkkoyhteydellisella heratyksella enintaan 10 minuutiksi. Kameraa ei siis tarvitse pitaa jatkuvasti paalla. Uusi pyynto voidaan tehda paivittamatta ohjelmaa.
+
+Tarvitset Node.js 22+:n, OpenSSL:n seka kaannokseen Arduino CLI:n, esp32-ytimen 3.3.12 ja ArduinoJson 7:n. Aja komennot projektin juuresta:
+
+```sh
+# Kerran ennen ensimmaista USB-latausta; ei tulosta salasanaa.
+node tools/maintenance.mjs init
+# Ohjelma kaannetaan yksityiseen valiaikaishakemistoon min_spiffs-asettelulla.
+node tools/maintenance.mjs build --arduino-cli arduino-cli
+# Julkaisee vain ei-salaisen, 24 tuntia voimassa olevan heratepyynnon.
+node tools/maintenance.mjs request
+```
+
+Jos Arduino CLI tarvitsee erillisen asetustiedoston, anna `--arduino-config /polku/arduino-cli.yaml`. `build` tulostaa yksityisen `.bin`-tiedoston polun. Ala julkaise sita: ohjelma sisaltaa Wi-Fi-tiedot, GitHub-tokenin ja laitteen TLS-avaimen.
+
+Huollon avauduttua avaa `https://esp32cam.local/` samassa lahiverkossa. Julkisella sivulla nakyy myos Avaa huolto -linkki voimassa olevan tilatiedon perusteella. Salasana ja varmenteen SHA-256-sormenjaljki ovat vain paikallisessa `.secrets/maintenance-login.txt`-tiedostossa. Selain varoittaa itse allekirjoitetusta laitevarmenteesta: vertaa sormenjalkea ennen poikkeuksen hyvaksynta. Ala asenna varmennetta yleiseksi luottamusjuureksi tai avaa huoltoporttia internetiin.
+
+Huoltosivulla on viimeisin SD-kuva, ajastus, ohjelmapaikka, SHA-256-tarkistettu `.bin`-paivitys ja huollon paattaminen. Ohjelma kirjoitetaan passiiviseen ohjelmapaikkaan, ei kaynnissa olevan paalle. Sivusto vahvistaa paivityksen vasta uuden ohjelman kaynnistyksen jalkeen. Tama ei takaa automaattista palautumista, jos uusi ohjelma ei kaynnisty: silloin tarvitaan USB-palautus.
+
+Myos komentorivi kayttaa vahvistettua ja laitteeseen sidottua TLS-varmennetta:
+
+```sh
+node tools/maintenance.mjs status
+node tools/maintenance.mjs schedule --day-start 07:00 --night-start 22:00 --day-interval 60 --night-interval 180 --night-enabled true
+node tools/maintenance.mjs upload --firmware /yksityinen/polku/esp32_timelapse.ino.bin
+node tools/maintenance.mjs finish
+```
+
+Jos `.local`-nimipalvelu ei toimi, anna lisaksi `--address 192.168.x.x` laitteen oikealla lahiverkko-IP:lla. Varmenne tarkistetaan silti laitenimea vasten. Komennot eivat lisaa tunnuksia julkiselle sivulle tai URL-osoitteeseen. GitHub-token luetaan paikallisesta `config.h`:sta vain huoltopyynnon tekemiseen.
+
+Pidata `.secrets/maintenance.json` turvallisessa varmuuskopiossa. `init` ei korvaa olemassa olevaa tunnusta tai varmennetta. Huollon salasana ja avain paketoidaan ohitettuun `maintenance_secrets.h`:hon. Jos tata tiedostoa ei ole, ohjelma kaantyy ilman huoltoa. Ala koskaan committaa naita salaisuuksia GitHubiin.
+
+## Paiva/yoajastus
+
+Oletus on paiva 07:00-22:00, 60 minuuttia; yo 180 minuuttia. Kellonaikaan sidotut oletushetket ovat paivalla 07, 08, ... 21 ja yolla 22, 01 ja 04. Aikavyohyke maaritetaan kameran `TIMEZONE`-asetuksella (Suomi). Kesaaikaan siirtyminen kasitellaan paikallisen ajan mukaan. Kaynnistymisen ja verkon viive voi siirtaa varsinaista kuvanottoa muutaman sekunnin.
+
+Huoltosivun ajoitus tallentuu laitteen NVS-muistiin ja sailyy uudelleenkaynnistyksissa seka OTA-paivityksissa. Yon voi myos poistaa kaytosta. Kuvausvalit ovat 5-1440 minuuttia ja kumpikin jakso alkaa omasta alkukellonajastaan. Ilman verkkoyhteytta kaytetaan viimeksi saatua kelvollista kellonaikaa. Jos kelloa ei ole koskaan asetettu, varalla on vanha 60 minuutin kuvausvali; GitHub-lahetys odottaa NTP-synkronointia.
 
 ## Testaus
 
 ```sh
-node --test tests/core.test.mjs
+node --test tests/*.test.mjs
+c++ -std=c++17 tests/schedule_test.cpp -o /tmp/esp32-schedule-test
+/tmp/esp32-schedule-test
+node tools/embed-maintenance.mjs --check
 ```
 
 Selaintestit tarvitsevat Playwrightin, Chromiumin ja HTTP-palvelimen `docs`-kansiolle. Testit kayttavat repon kamerakuvia seka eristettyja tilatietovastauksia, eivatka kirjoita GitHubiin.
@@ -161,6 +209,8 @@ Selaintestit tarvitsevat Playwrightin, Chromiumin ja HTTP-palvelimen `docs`-kans
 python3 -m http.server 8000 --directory docs
 # Toisessa terminaalissa, kun playwright on asennettu:
 node tests/browser.cjs
+# Huoltosivun eristetty HTTPS-selaintesti init-komennon jalkeen:
+node tests/maintenance-browser.mjs
 ```
 
 Muuttujat `TEST_BASE_URL`, `TEST_OUTPUT_DIR` ja `PLAYWRIGHT_MODULE` voivat vaihtaa palvelimen, tuloshakemiston ja Playwrightin moduulipolun. Testit tarkistavat paivamaarat, tilan, rajaukset, varityylit, pikseliresoluution, toiston, MP4:n ruutumaaran ja keston, GIF-viennin seka keskeytyksen tietokone- ja puhelinnakymissa.

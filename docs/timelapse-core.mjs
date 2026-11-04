@@ -62,14 +62,26 @@ export function cameraHealth(status, latestDate, now = new Date(), fallbackInter
   const updated = Number(status?.updatedAt) * 1000;
   const reference = updated > 0 ? updated : latestDate?.getTime();
   if (Number.isFinite(reference) && reference > now.getTime() + 300000) return { level: 'warning', label: 'Kellonaika poikkeaa', available: Boolean(updated) };
-  const stale = Number.isFinite(reference) && now.getTime() - reference > (interval * 1.75 + 5) * 60000;
+  const next = Number(status?.nextCaptureAt) * 1000;
+  const scheduled = updated > 0 && next > updated && next - updated <= 48 * 3600000;
+  const deadline = scheduled ? next + Math.max(5, interval * 0.25) * 60000 : reference + (interval * 1.75 + 5) * 60000;
+  const stale = Number.isFinite(reference) && now.getTime() > deadline;
   if (stale) {
     const recentImage = latestDate && now.getTime() - latestDate.getTime() <= (interval * 1.75 + 5) * 60000;
     return { level: updated && recentImage ? 'warning' : 'stale', label: updated && recentImage ? 'Tilatieto vanhentunut' : 'Kuvat viivästyneet', available: Boolean(updated) };
   }
   if (!updated) return { level: 'unknown', label: 'Ei tilatietoja', available: false };
   if (status.error || Number(status.pendingUploads) > 0 || status.sdReady === false) return { level: 'warning', label: 'Huomioitavaa', available: true };
+  if (status.maintenance?.active && status.maintenance.endsAt * 1000 > now.getTime()) return { level: 'ok', label: 'Huoltotila', available: true };
+  if (status.capturePeriod === 'paused') return { level: 'ok', label: 'Yötauko', available: true };
   return { level: 'ok', label: 'Ajallaan', available: true };
+}
+
+export function normalizeSchedule(value) {
+  const time = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+  const interval = (input) => Number.isInteger(input) && input >= 5 && input <= 1440;
+  if (!value || !time.test(value.dayStart) || !time.test(value.nightStart) || value.dayStart === value.nightStart || !interval(value.dayIntervalMinutes) || !interval(value.nightIntervalMinutes) || typeof value.nightEnabled !== 'boolean') return null;
+  return { dayStart: value.dayStart, nightStart: value.nightStart, dayIntervalMinutes: value.dayIntervalMinutes, nightIntervalMinutes: value.nightIntervalMinutes, nightEnabled: value.nightEnabled };
 }
 
 export function normalizeStatus(value) {
@@ -88,6 +100,14 @@ export function normalizeStatus(value) {
     sdFreeBytes: bytes(value.sdFreeBytes),
     wifiRssi: Number.isFinite(value.wifiRssi) && value.wifiRssi >= -140 && value.wifiRssi <= 0 ? value.wifiRssi : null,
     firmwareVersion: typeof value.firmwareVersion === 'string' ? value.firmwareVersion.slice(0, 40) : '',
+    capturePeriod: ['day', 'night', 'paused'].includes(value.capturePeriod) ? value.capturePeriod : '',
+    schedule: normalizeSchedule(value.schedule),
+    maintenance: {
+      configured: value.maintenance?.configured === true,
+      active: value.maintenance?.active === true,
+      endsAt: timestamp(value.maintenance?.endsAt),
+      hostname: typeof value.maintenance?.hostname === 'string' && /^[a-z0-9][a-z0-9-]{0,40}\.local$/.test(value.maintenance.hostname) ? value.maintenance.hostname : '',
+    },
     error: typeof value.error === 'string' ? value.error.slice(0, 300) : '',
   };
 }

@@ -1,6 +1,7 @@
 import { parseFrameDate, filterFrames, CAMERA_TIME_ZONE } from './timelapse-core.mjs';
 import { createDashboard } from './dashboard.mjs';
 import { createIcons, icons } from './vendor/lucide.mjs';
+import { applyFixedPalette, paletteColors } from './palettes.mjs';
 
 const config = {
   owner: "your-github-user",
@@ -12,6 +13,7 @@ const config = {
   pixelWidth: 128,
   defaultResolution: "128",
   defaultStyle: "minimal",
+  defaultPalette: '16',
   solarBrightness: 1.18,
   solarSaturation: 1.35,
   solarLevels: 5,
@@ -31,6 +33,7 @@ const state = {
   fps: Number(config.frameRate) || 8,
   resolutionIndex: 5,
   styleMode: config.defaultStyle || "minimal",
+  paletteMode: config.defaultPalette || '16',
   timer: null,
   refreshTimer: null
 };
@@ -117,6 +120,18 @@ state.resolutionIndex = configuredResolutionIndex >= 0 ? configuredResolutionInd
 
 if (!stylePresets[state.styleMode]) {
   state.styleMode = "minimal";
+}
+if (!['original', '8', '16'].includes(state.paletteMode)) state.paletteMode = '16';
+
+function updatePaletteControls() {
+  document.querySelectorAll('[data-palette]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.palette === state.paletteMode)));
+  const preview = document.getElementById('palettePreview');
+  preview.replaceChildren(...(paletteColors(state.styleMode, state.paletteMode) || []).map((color) => {
+    const swatch = document.createElement('span');
+    swatch.style.backgroundColor = `rgb(${color.join(',')})`;
+    return swatch;
+  }));
+  preview.style.setProperty('--palette-count', preview.children.length || 16);
 }
 
 function isConfigured() {
@@ -467,6 +482,7 @@ function pixelCanvas(image, settings) {
   workContext.drawImage(image, 0, 0, width, height);
 
   const graded = colorGrade(workContext.getImageData(0, 0, width, height), settings.styleMode);
+  applyFixedPalette(graded, settings.styleMode, settings.paletteMode);
   workContext.putImageData(graded, 0, 0);
   return { canvas: workCanvas, width, height, full };
 }
@@ -601,12 +617,20 @@ async function loadFrames({ keepPosition = true } = {}) {
 
 const dashboard = createDashboard({
   getFrames: () => state.frames,
-  getSettings: () => ({ resolutionIndex: state.resolutionIndex, styleMode: state.styleMode, fps: state.fps, styleLabel: stylePresets[state.styleMode].label, resolutionLabel: els.resolutionLabel.textContent }),
+  getSettings: () => ({ resolutionIndex: state.resolutionIndex, styleMode: state.styleMode, paletteMode: state.paletteMode, paletteColors: paletteColors(state.styleMode, state.paletteMode), fps: state.fps, styleLabel: stylePresets[state.styleMode].label, resolutionLabel: els.resolutionLabel.textContent, paletteLabel: state.paletteMode === 'original' ? 'Vapaa paletti' : `${state.paletteMode} väriä` }),
   applyRange: (range) => { state.range = range; applyFilters(false); },
   renderExport: async (frame, settings, signal) => pixelCanvas(await loadImage(frame.url, signal), settings).canvas,
   timeZone: config.timeZone,
 });
 createIcons({ icons });
+updatePaletteControls();
+document.getElementById('paletteControls').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-palette]');
+  if (!button) return;
+  state.paletteMode = button.dataset.palette;
+  updatePaletteControls();
+  renderFrame();
+});
 els.thumbnailStrip.addEventListener('click', (event) => {
   const button = event.target.closest('[data-index]');
   if (!button) return;
@@ -665,6 +689,7 @@ els.resolutionSlider.addEventListener("input", (event) => {
 els.styleSelect.value = state.styleMode;
 els.styleSelect.addEventListener("change", (event) => {
   state.styleMode = event.target.value;
+  updatePaletteControls();
   renderFrame();
 });
 

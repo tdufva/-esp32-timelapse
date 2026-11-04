@@ -26,7 +26,8 @@
 // Use "UTC0" if you prefer UTC filenames.
 #define TIMEZONE "EET-2EEST,M3.5.0/3,M10.5.0/4"
 
-// Capture one frame per hour.
+// Default daytime interval and fallback when the clock cannot be synchronized.
+// Day/night settings are persisted by the authenticated maintenance page.
 #define CAPTURE_INTERVAL_MINUTES 60ULL
 
 // Camera quality. QVGA keeps the uploaded files small and gives the

@@ -7,7 +7,7 @@ const outputDir = process.env.TEST_OUTPUT_DIR || path.join(require('node:os').tm
 const root = path.resolve(__dirname, '..');
 const names = fs.readdirSync(path.join(root, 'photos')).filter((name) => /\.jpg$/.test(name));
 const now = new Date('2026-11-04T10:30:00Z');
-const status = { schemaVersion: 1, camera: 'esp32cam', firmwareVersion: '2.0.0', updatedAt: +now / 1000, lastCaptureAt: +now / 1000, lastUploadAt: +now / 1000, nextCaptureAt: +now / 1000 + 3600, captureIntervalMinutes: 60, pendingUploads: 0, sdReady: true, sdFreeBytes: 30 * 1024 ** 3, wifiRssi: -55, error: '' };
+const status = { schemaVersion: 1, camera: 'esp32cam', firmwareVersion: '3.0.0', updatedAt: +now / 1000, lastCaptureAt: +now / 1000, lastUploadAt: +now / 1000, nextCaptureAt: +now / 1000 + 3600, captureIntervalMinutes: 60, pendingUploads: 0, sdReady: true, sdFreeBytes: 30 * 1024 ** 3, wifiRssi: -55, error: '', schedule: { dayStart: '07:00', nightStart: '22:00', dayIntervalMinutes: 60, nightIntervalMinutes: 180, nightEnabled: true }, maintenance: { configured: true, active: false, hostname: 'esp32cam.local', endsAt: 0 } };
 const tree = names.map((name) => ({ type: 'blob', path: `photos/${name}`, sha: name, size: fs.statSync(path.join(root, 'photos', name)).size }));
 const day3Count = names.filter((name) => name.includes('_20261103_')).length;
 const day4Count = names.filter((name) => name.includes('_20261104_')).length;
@@ -46,7 +46,10 @@ async function main() {
       if (await page.locator('#playToggle').evaluate((el) => el.classList.contains('is-playing'))) await page.locator('#playToggle').click();
       assert.equal(await page.locator('#cameraHealth').textContent(), 'Ajallaan');
       assert.equal(await page.locator('#cameraPending').textContent(), '0 kuvaa');
-      assert.equal(await page.locator('#cameraFirmware').textContent(), '2.0.0');
+      assert.equal(await page.locator('#cameraFirmware').textContent(), '3.0.0');
+      assert.equal(await page.locator('#scheduleDayHours').textContent(), '07:00–22:00');
+      assert.equal(await page.locator('#scheduleNight').textContent(), '3 h välein');
+      assert(await page.locator('#maintenanceLink').isHidden());
       assert(await page.locator('svg[data-lucide]').count() >= 10);
       const reference = names.filter((name) => name.includes('_20261104_')).sort().indexOf('esp32cam_20261104_102521.jpg');
       if (reference >= 0) {
@@ -62,6 +65,21 @@ async function main() {
       }
       assert.equal(styles.mono.colored, 0);
       assert.equal(new Set(Object.values(styles).map((value) => value.hash)).size, 4, JSON.stringify(styles));
+      for (const mode of ['8', '16']) {
+        await page.locator(`[data-palette="${mode}"]`).click();
+        await page.waitForTimeout(60);
+        const result = await page.locator('#frameCanvas').evaluate(async (canvas, mode) => {
+          const { paletteColors } = await import('/palettes.mjs');
+          const palette = new Set(paletteColors('mono', mode).map((rgb) => rgb.join(',')));
+          const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+          const colors = new Set();
+          for (let i = 0; i < pixels.length; i += 4) colors.add(Array.from(pixels.slice(i, i + 3)).join(','));
+          return { count: colors.size, matches: [...colors].every((rgb) => palette.has(rgb)) };
+        }, mode);
+        assert(result.matches);
+        assert(result.count <= Number(mode));
+        assert.equal(await page.locator('#palettePreview span').count(), Number(mode));
+      }
       await page.locator('#resolutionSlider').evaluate((el) => { el.value = '0'; el.dispatchEvent(new Event('input')); });
       await page.waitForTimeout(50);
       const minimum = await stats(page);
@@ -138,6 +156,14 @@ async function main() {
       await page.waitForFunction(() => document.querySelector('#cameraPending').textContent === '3 kuvaa');
       assert.equal(await page.locator('#cameraHealth').textContent(), 'Huomioitavaa');
       status.pendingUploads = 0;
+      status.maintenance.active = true;
+      status.maintenance.endsAt = +now / 1000 + 600;
+      await page.locator('#refreshFrames').click();
+      await page.waitForFunction(() => !document.querySelector('#maintenanceLink').hidden);
+      assert.equal(await page.locator('#maintenanceLink').getAttribute('href'), 'https://esp32cam.local/');
+      assert.equal(await page.locator('#cameraHealth').textContent(), 'Huoltotila');
+      status.maintenance.active = false;
+      status.maintenance.endsAt = 0;
       includeStatus = false;
       await page.locator('#refreshFrames').click();
       await page.waitForFunction(() => document.querySelector('#cameraFirmware').textContent === '—');

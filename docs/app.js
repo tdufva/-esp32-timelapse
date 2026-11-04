@@ -1,7 +1,7 @@
-import { parseFrameDate, filterFrames, CAMERA_TIME_ZONE } from './timelapse-core.mjs';
-import { createDashboard } from './dashboard.mjs';
-import { createIcons, icons } from './vendor/lucide.mjs';
-import { applyFixedPalette, paletteColors } from './palettes.mjs';
+import { parseFrameDate, filterFrames, CAMERA_TIME_ZONE } from './timelapse-core.mjs?v=3';
+import { createDashboard } from './dashboard.mjs?v=3';
+import { createIcons, icons } from './vendor/lucide.mjs?v=3';
+import { applyFixedPalette, paletteColors } from './palettes.mjs?v=3';
 
 const config = {
   owner: "your-github-user",

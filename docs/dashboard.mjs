@@ -1,5 +1,5 @@
-import { calendarCells, cameraHealth, dateKey, presetRange, shiftDateKey, normalizeStatus, CAMERA_TIME_ZONE } from './timelapse-core.mjs';
-import { exportTimelapse } from './export.mjs';
+import { calendarCells, cameraHealth, dateKey, presetRange, shiftDateKey, normalizeStatus, CAMERA_TIME_ZONE } from './timelapse-core.mjs?v=3';
+import { exportTimelapse } from './export.mjs?v=3';
 
 const errorLabels = {
   sd_unavailable: 'Muistikortti ei ole käytettävissä', camera_init_failed: 'Kameran alustus epäonnistui',

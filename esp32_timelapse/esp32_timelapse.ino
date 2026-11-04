@@ -13,11 +13,15 @@
 #include "esp_sntp.h"
 #include <string.h>
 #include <algorithm>
+#include <memory>
+#include <new>
 
 #include "config.h"
 #include "firmware_identity.h"
 #include "schedule_storage.h"
 #include "maintenance.h"
+
+SET_LOOP_TASK_STACK_SIZE(16384);
 
 // Pin map for the common AI Thinker ESP32-CAM module.
 #define CAMERA_MODEL_AI_THINKER
@@ -654,11 +658,13 @@ void processMaintenanceRequest() {
   if (!readGitHubMetadata(String("control/") + CAMERA_NAME + ".json", metadata, filter, found) || !found) return;
   String content = metadata["content"].as<String>();
   if (metadata["encoding"] != "base64" || content.length() > 6000) return;
-  uint8_t decoded[4096];
+  // TLS uses a deep call stack; keep the control-file buffer off that stack.
+  std::unique_ptr<uint8_t[]> decoded(new (std::nothrow) uint8_t[4096]);
+  if (!decoded) return;
   size_t size = 0;
-  if (mbedtls_base64_decode(decoded, sizeof(decoded), &size, reinterpret_cast<const uint8_t *>(content.c_str()), content.length()) != 0) return;
+  if (mbedtls_base64_decode(decoded.get(), 4096, &size, reinterpret_cast<const uint8_t *>(content.c_str()), content.length()) != 0) return;
   JsonDocument control;
-  if (deserializeJson(control, decoded, size) || control["schemaVersion"] != 1 || !control["requestId"].is<String>() || !control["expiresAt"].is<uint32_t>()) return;
+  if (deserializeJson(control, decoded.get(), size) || control["schemaVersion"] != 1 || !control["requestId"].is<String>() || !control["expiresAt"].is<uint32_t>()) return;
   if (acceptMaintenanceRequest(control["requestId"].as<String>(), control["expiresAt"], time(nullptr))) Serial.println("Maintenance request accepted");
 }
 

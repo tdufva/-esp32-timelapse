@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import https from 'node:https';
+import net from 'node:net';
 import { once } from 'node:events';
 import { initMaintenance, readKeystore, requestDevice, parseFirmware, validLocalAddress, OTA_FAMILY, OTA_SLOT_BYTES } from '../tools/maintenance-lib.mjs';
 
@@ -25,6 +26,22 @@ test('OTA preflight rejects truncated, wrong-chip, oversized and unrelated image
 test('device connections cannot target public IPs or arbitrary hostnames', () => {
   for (const address of ['127.0.0.1', '10.1.2.3', '192.168.1.58', '172.16.0.1', '172.31.255.254', '169.254.0.1', 'esp32cam.local']) assert(validLocalAddress(address, 'esp32cam.local'));
   for (const address of ['8.8.8.8', '172.32.0.1', '172.15.0.1', 'example.com', 'evil.local', '192.168.1.999', 'https://esp32cam.local']) assert(!validLocalAddress(address, 'esp32cam.local'));
+});
+
+test('maintenance deadline also bounds a stalled TLS handshake', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'esp32-maint-timeout-'));
+  const sockets = new Set();
+  const server = net.createServer((socket) => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
+  try {
+    fs.mkdirSync(path.join(root, 'esp32_timelapse'));
+    initMaintenance(root);
+    server.listen(0, '127.0.0.1'); await once(server, 'listening');
+    await assert.rejects(requestDevice(readKeystore(root), { address: '127.0.0.1', port: server.address().port, timeout: 100 }), { name: 'AbortError' });
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('TLS client pins the private certificate and sends authenticated CSRF-protected requests', async () => {

@@ -74,7 +74,7 @@ export function requestDevice(keystore, { address = keystore.hostname, port = 44
   const payload = json === undefined ? body : Buffer.from(JSON.stringify(json));
   const fingerprint = new crypto.X509Certificate(keystore.certificatePem).fingerprint256;
   return new Promise((resolve, reject) => {
-    const request = https.request({ hostname: address, servername: keystore.hostname, port, path: pathname, method, ca: keystore.certificatePem, agent: false,
+    const request = https.request({ hostname: address, servername: keystore.hostname, port, path: pathname, method, ca: keystore.certificatePem, agent: false, signal: AbortSignal.timeout(timeout),
       checkServerIdentity: (host, certificate) => {
         const error = tls.checkServerIdentity(keystore.hostname, certificate);
         if (error) return error;

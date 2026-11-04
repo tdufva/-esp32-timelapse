@@ -326,6 +326,8 @@ bool runMaintenance(CaptureSchedule &schedule) {
   httpd_ssl_config_t config = HTTPD_SSL_CONFIG_DEFAULT();
   config.httpd.max_uri_handlers = 10;
   config.httpd.max_open_sockets = 2;
+  config.httpd.lru_purge_enable = true;
+  config.httpd.max_req_hdr_len = 4096;
   config.httpd.stack_size = 16384;
   config.httpd.recv_wait_timeout = 10;
   config.httpd.send_wait_timeout = 10;

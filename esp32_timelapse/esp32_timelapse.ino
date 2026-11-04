@@ -52,7 +52,7 @@ RTC_DATA_ATTR uint32_t bootCount = 0;
 #define GITHUB_STATUS_PATH "status"
 #endif
 
-static const char *FIRMWARE_VERSION = "2.0.0";
+static const char *FIRMWARE_VERSION = "2.0.1";
 static const char *OUTBOX_PATH = "/outbox";
 static const char *LOCAL_STATUS_PATH = "/camera-status.json";
 static String lastCapturedFile;
@@ -572,6 +572,20 @@ bool putGitHubContent(const String &repoPath, const uint8_t *data, size_t len, b
   return false;
 }
 
+class MetadataBuffer : public Stream {
+ public:
+  String value;
+  size_t write(uint8_t byte) override { return write(&byte, 1); }
+  size_t write(const uint8_t *data, size_t size) override {
+    if (value.length() + size > 65536 || !value.concat(reinterpret_cast<const char *>(data), size)) return 0;
+    return size;
+  }
+  int available() override { return 0; }
+  int read() override { return -1; }
+  int peek() override { return -1; }
+  void flush() override {}
+};
+
 bool readGitHubSha(const String &repoPath, String &sha) {
   sha = String();
   WiFiClientSecure client;
@@ -583,7 +597,7 @@ bool readGitHubSha(const String &repoPath, String &sha) {
   client.setConnectionTimeout(15000);
   client.setTimeout(15000);
   HTTPClient http;
-  // ArduinoJson can parse the body stream without buffering Base64 image data.
+  // HTTPClient handles transfer framing before JSON parsing. Bound RAM use.
   http.useHTTP10(true);
   http.setReuse(false);
   http.setTimeout(15000);
@@ -599,7 +613,15 @@ bool readGitHubSha(const String &repoPath, String &sha) {
   JsonDocument filter;
   filter["sha"] = true;
   JsonDocument document;
-  auto error = deserializeJson(document, http.getStream(), DeserializationOption::Filter(filter));
+  MetadataBuffer body;
+  int read = http.writeToStream(&body);
+  if (read < 0) {
+    Serial.printf("GitHub metadata body read failed: %d\n", read);
+    http.end();
+    return false;
+  }
+  auto error = deserializeJson(document, body.value, DeserializationOption::Filter(filter));
+  if (error) Serial.printf("GitHub metadata JSON error: %s\n", error.c_str());
   if (!error) sha = document["sha"].as<String>();
   http.end();
   return !error && sha.length() == 40;
@@ -654,7 +676,7 @@ bool uploadPendingPhoto(const String &name, bool clockReady) {
   }
   photo.close();
   if (!uploaded) {
-    noteError(String("upload_http_") + lastHttpStatus);
+    noteError(lastHttpStatus == 200 ? String("remote_metadata_invalid") : String("upload_http_") + lastHttpStatus);
     return false;
   }
   // Never remove the original photo. Only acknowledge the outbox entry.

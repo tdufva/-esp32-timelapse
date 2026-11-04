@@ -8,6 +8,7 @@ const errorLabels = {
   outbox_unavailable: 'Lähetysjono ei ole käytettävissä', outbox_write_failed: 'Lähetysjonoon kirjoittaminen epäonnistui',
   outbox_ack_failed: 'Lähetyksen kuittaus kortille epäonnistui', incomplete_photo: 'Keskeneräinen kuva ohitettu',
   remote_photo_conflict: 'Samanniminen kuva on GitHubissa eri sisältöisenä', status_save_failed: 'Tilatiedon tallentaminen kortille epäonnistui',
+  remote_metadata_invalid: 'GitHubin kuvan tarkistus ei onnistunut',
 };
 
 export function createDashboard({ getFrames, getSettings, applyRange, renderExport, timeZone = CAMERA_TIME_ZONE }) {

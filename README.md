@@ -112,6 +112,7 @@ Oletuksia voi saataa `docs/config.js`-tiedostossa:
 - Alkuperaiset JPEG-kuvat sailyvat kortin `/photos`-kansiossa myos onnistuneen lahetyksen jalkeen.
 - `/outbox` sisaltaa toimitusta odottavien kuvien kuittausmerkinnat. Merkinta luodaan ennen kuvan tallentamista, ja valmis kuva siirretaan `.part`-nimestaan lopulliseen nimeen.
 - Ensimmainen 2.0-kaynnistys tuo myos vanhat kortilla olevat JPEG-kuvat jonoon. Jo GitHubissa olevan kuvan Git-blob-tiiviste tarkistetaan: vain identtinen kuva kuitataan toimitetuksi. Eri sisaltoista kuvaa ei korvata.
+- Metatietovastauksen muistinkaytto on rajattu 64 kilotavuun. Tata suurempaa vastausta vaativa, jo olemassa oleva kuva jaa tarkistamatta jonoon; QVGA-kuvat mahtuvat normaalisti tahan rajaan.
 - Uusin kuva lahetetaan ensin. Sen jalkeen puretaan vanhaa jonoa. Oletuksena enintaan 6 kuvaa kierroksessa ja 90 sekunnin tavoitebudjetti; yksittainen kesken oleva HTTPS-pyynto voi ylittaa tavoitebudjetin.
 - Verkko-, oikeus- tai kirjoitusvirhe jattaa kuvan jonoon seuraavaa heratysta varten. Alkuperaista kuvaa ei poisteta.
 - Keskeneraisen tallennuksen `.part`-tiedosto ja sita vastaava jonon merkinta siivotaan. Niita ei julkaista valmiina kuvina.

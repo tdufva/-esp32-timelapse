@@ -2,11 +2,15 @@
 #include "esp_camera.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 #include "FS.h"
 #include "SD_MMC.h"
 #include "mbedtls/base64.h"
+#include "mbedtls/sha1.h"
 #include "time.h"
 #include "esp_sleep.h"
+#include "esp_sntp.h"
 #include <string.h>
 
 #include "config.h"
@@ -37,6 +41,36 @@
 #endif
 
 RTC_DATA_ATTR uint32_t bootCount = 0;
+
+#ifndef MAX_UPLOADS_PER_WAKE
+#define MAX_UPLOADS_PER_WAKE 6
+#endif
+#ifndef UPLOAD_BUDGET_MS
+#define UPLOAD_BUDGET_MS 90000UL
+#endif
+#ifndef GITHUB_STATUS_PATH
+#define GITHUB_STATUS_PATH "status"
+#endif
+
+static const char *FIRMWARE_VERSION = "2.0.0";
+static const char *OUTBOX_PATH = "/outbox";
+static const char *LOCAL_STATUS_PATH = "/camera-status.json";
+static String lastCapturedFile;
+static String lastUploadedFile;
+static uint32_t lastCaptureAt = 0;
+static uint32_t lastUploadAt = 0;
+static String cycleError;
+static int lastHttpStatus = 0;
+static volatile bool ntpSynced = false;
+
+void onTimeSync(struct timeval *) {
+  ntpSynced = true;
+}
+
+void noteError(const String &error) {
+  if (cycleError.length()) cycleError += ";";
+  cycleError += error;
+}
 
 static const char *GITHUB_API_HOST = "api.github.com";
 static const uint16_t HTTPS_PORT = 443;
@@ -98,6 +132,11 @@ String jsonEscape(const String &value) {
 }
 
 bool initCamera() {
+  // A warm reset can leave the sensor streaming before the driver queues exist.
+  pinMode(PWDN_GPIO_NUM, OUTPUT);
+  digitalWrite(PWDN_GPIO_NUM, HIGH);
+  delay(20);
+
   camera_config_t config = {};
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -205,18 +244,21 @@ bool connectWiFi() {
 }
 
 bool syncClock() {
+  ntpSynced = false;
+  sntp_set_time_sync_notification_cb(onTimeSync);
   configTzTime(TIMEZONE, "pool.ntp.org", "time.google.com", "time.nist.gov");
 
   struct tm timeinfo;
   unsigned long start = millis();
   while (millis() - start < NTP_TIMEOUT_MS) {
-    if (getLocalTime(&timeinfo, 1000)) {
+    if (ntpSynced && getLocalTime(&timeinfo, 100)) {
       char stamp[32];
       strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &timeinfo);
       Serial.print("Clock synced: ");
       Serial.println(stamp);
       return true;
     }
+    delay(50);
   }
 
   Serial.println("NTP sync failed; using fallback filename");
@@ -228,7 +270,9 @@ String makeFileName(bool hasTime) {
   if (hasTime && getLocalTime(&timeinfo, 100)) {
     char filename[80];
     strftime(filename, sizeof(filename), CAMERA_NAME "_%Y%m%d_%H%M%S.jpg", &timeinfo);
-    return String(filename);
+    char uniqueName[96];
+    snprintf(uniqueName, sizeof(uniqueName), "%s_%04lx.jpg", String(filename).substring(0, strlen(filename) - 4).c_str(), static_cast<unsigned long>(esp_random() & 0xffff));
+    return String(uniqueName);
   }
 
   char fallback[96];
@@ -278,20 +322,95 @@ camera_fb_t *capturePhoto() {
   return frame;
 }
 
+bool isPhotoName(const String &name) {
+  return name.length() && name.indexOf('/') < 0 && (name.endsWith(".jpg") || name.endsWith(".jpeg"));
+}
+
+String entryName(File &file) {
+  String name(file.name());
+  return name.substring(name.lastIndexOf('/') + 1);
+}
+
+bool markPending(const String &name) {
+  if (!isPhotoName(name)) return false;
+  String path = String(OUTBOX_PATH) + "/" + name;
+  if (SD_MMC.exists(path)) return true;
+  File marker = SD_MMC.open(path, FILE_WRITE);
+  if (!marker) return false;
+  marker.flush();
+  marker.close();
+  return true;
+}
+
+void initOutbox() {
+  if (!SD_MMC.exists(OUTBOX_PATH) && !SD_MMC.mkdir(OUTBOX_PATH)) {
+    noteError("outbox_unavailable");
+    return;
+  }
+  String migrated = String(OUTBOX_PATH) + "/.imported-v2";
+  if (SD_MMC.exists(migrated)) return;
+  bool complete = true;
+  File directory = SD_MMC.open(LOCAL_PHOTO_PATH);
+  if (!directory || !directory.isDirectory()) return;
+  for (File entry = directory.openNextFile(); entry; entry = directory.openNextFile()) {
+    String name = entryName(entry);
+    if (!entry.isDirectory() && isPhotoName(name) && !markPending(name)) complete = false;
+    entry.close();
+  }
+  directory.close();
+  if (complete) {
+    File marker = SD_MMC.open(migrated, FILE_WRITE);
+    if (marker) { marker.flush(); marker.close(); }
+  }
+}
+
+uint32_t pendingCount() {
+  uint32_t count = 0;
+  File directory = SD_MMC.open(OUTBOX_PATH);
+  if (!directory) return count;
+  for (File entry = directory.openNextFile(); entry; entry = directory.openNextFile()) {
+    if (!entry.isDirectory() && isPhotoName(entryName(entry))) count++;
+    entry.close();
+  }
+  return count;
+}
+
+String oldestPending() {
+  String oldest;
+  File directory = SD_MMC.open(OUTBOX_PATH);
+  if (!directory) return oldest;
+  for (File entry = directory.openNextFile(); entry; entry = directory.openNextFile()) {
+    String name = entryName(entry);
+    if (!entry.isDirectory() && isPhotoName(name) && (!oldest.length() || name < oldest)) oldest = name;
+    entry.close();
+  }
+  return oldest;
+}
+
 bool savePhotoToSd(const String &fileName, const uint8_t *data, size_t len) {
   String path = String(LOCAL_PHOTO_PATH) + "/" + fileName;
-  File file = SD_MMC.open(path, FILE_WRITE);
+  String temporary = path + ".part";
+  if (SD_MMC.exists(path) || !markPending(fileName)) {
+    noteError("outbox_write_failed");
+    return false;
+  }
+  // The durable marker exists before the photo is committed to its final name.
+  File file = SD_MMC.open(temporary, FILE_WRITE);
   if (!file) {
     Serial.print("Could not open file for writing: ");
     Serial.println(path);
+    SD_MMC.remove((String(OUTBOX_PATH) + "/" + fileName).c_str());
     return false;
   }
 
   size_t written = file.write(data, len);
+  file.flush();
   file.close();
 
-  if (written != len) {
+  if (written != len || !SD_MMC.rename(temporary, path)) {
     Serial.printf("microSD write incomplete: %u/%u bytes\n", static_cast<unsigned int>(written), static_cast<unsigned int>(len));
+    SD_MMC.remove(temporary);
+    SD_MMC.remove((String(OUTBOX_PATH) + "/" + fileName).c_str());
     return false;
   }
 
@@ -304,10 +423,11 @@ size_t base64Length(size_t rawLength) {
   return 4 * ((rawLength + 2) / 3);
 }
 
-bool writeBase64(WiFiClientSecure &client, const uint8_t *data, size_t len) {
+bool writeBase64(WiFiClientSecure &client, const uint8_t *data, size_t len, Stream *source = nullptr) {
   const size_t inputChunk = 1536;
   const size_t encodedChunk = 4 * ((inputChunk + 2) / 3);
   uint8_t encoded[encodedChunk + 4];
+  uint8_t input[inputChunk];
   size_t offset = 0;
 
   while (offset < len) {
@@ -317,7 +437,9 @@ bool writeBase64(WiFiClientSecure &client, const uint8_t *data, size_t len) {
     }
 
     size_t encodedLength = 0;
-    int err = mbedtls_base64_encode(encoded, sizeof(encoded), &encodedLength, data + offset, chunk);
+    const uint8_t *chunkData = data ? data + offset : input;
+    if (!data && (!source || source->readBytes(input, chunk) != chunk)) return false;
+    int err = mbedtls_base64_encode(encoded, sizeof(encoded), &encodedLength, chunkData, chunk);
     if (err != 0) {
       Serial.printf("Base64 encode failed: %d\n", err);
       return false;
@@ -335,7 +457,8 @@ bool writeBase64(WiFiClientSecure &client, const uint8_t *data, size_t len) {
   return true;
 }
 
-bool uploadPhotoToGitHub(const String &fileName, const uint8_t *data, size_t len, bool clockReady) {
+bool putGitHubContent(const String &repoPath, const uint8_t *data, size_t len, bool clockReady, const String &sha = String(), Stream *source = nullptr) {
+  lastHttpStatus = 0;
   if (strlen(GITHUB_TOKEN) == 0 || strcmp(GITHUB_TOKEN, "github_pat_replace_me") == 0) {
     Serial.println("GitHub token not configured; skipping upload");
     return false;
@@ -348,12 +471,11 @@ bool uploadPhotoToGitHub(const String &fileName, const uint8_t *data, size_t len
   }
 #endif
 
-  String repoPath = String(GITHUB_PHOTO_PATH) + "/" + fileName;
   String apiPath = String("/repos/") + GITHUB_OWNER + "/" + GITHUB_REPO + "/contents/" + repoPath;
-  String message = String("Add timelapse frame ") + fileName;
+  String message = String("Update timelapse ") + repoPath;
   String prefix = String("{\"message\":\"") + jsonEscape(message) +
                   "\",\"branch\":\"" + jsonEscape(GITHUB_BRANCH) +
-                  "\",\"content\":\"";
+                  "\"," + (sha.length() ? String("\"sha\":\"") + sha + "\"," : String()) + "\"content\":\"";
   String suffix = "\"}";
   size_t bodyLength = prefix.length() + base64Length(len) + suffix.length();
 
@@ -364,6 +486,7 @@ bool uploadPhotoToGitHub(const String &fileName, const uint8_t *data, size_t len
   client.setInsecure();
 #endif
   client.setTimeout(30000);
+  client.setConnectionTimeout(30000);
 
   Serial.print("Connecting to GitHub API...");
   if (!client.connect(GITHUB_API_HOST, HTTPS_PORT)) {
@@ -372,38 +495,50 @@ bool uploadPhotoToGitHub(const String &fileName, const uint8_t *data, size_t len
   }
   Serial.println(" connected");
 
-  client.print("PUT ");
-  client.print(apiPath);
-  client.println(" HTTP/1.1");
-  client.print("Host: ");
-  client.println(GITHUB_API_HOST);
-  client.println("User-Agent: esp32-cam-timelapse");
-  client.print("Authorization: Bearer ");
-  client.println(GITHUB_TOKEN);
-  client.println("Accept: application/vnd.github+json");
-  client.println("X-GitHub-Api-Version: 2022-11-28");
-  client.println("Content-Type: application/json");
-  client.print("Content-Length: ");
-  client.println(bodyLength);
-  client.println("Connection: close");
-  client.println();
+  String headers = String("PUT ") + apiPath + " HTTP/1.1\r\n" +
+                   "Host: " + GITHUB_API_HOST + "\r\n" +
+                   "User-Agent: esp32-cam-timelapse\r\n" +
+                   "Authorization: Bearer " + GITHUB_TOKEN + "\r\n" +
+                   "Accept: application/vnd.github+json\r\n" +
+                   "X-GitHub-Api-Version: 2022-11-28\r\n" +
+                   "Content-Type: application/json\r\n" +
+                   "Content-Length: " + String(bodyLength) + "\r\n" +
+                   "Connection: close\r\n\r\n";
 
-  client.print(prefix);
-  if (!writeBase64(client, data, len)) {
+  if (client.print(headers) != headers.length() || client.print(prefix) != prefix.length()) {
+    Serial.println("HTTPS write failed during request headers or JSON prefix");
     client.stop();
     return false;
   }
-  client.print(suffix);
+  headers = String();
+  if (!writeBase64(client, data, len, source)) {
+    client.stop();
+    return false;
+  }
+  if (client.print(suffix) != suffix.length()) {
+    Serial.println("HTTPS write failed during JSON suffix");
+    client.stop();
+    return false;
+  }
+  Serial.printf("GitHub request body sent: %u bytes\n", static_cast<unsigned int>(bodyLength));
 
   String statusLine = client.readStringUntil('\n');
   statusLine.trim();
   Serial.print("GitHub response: ");
   Serial.println(statusLine);
+  if (statusLine.length() == 0) {
+    char error[160] = {};
+    int tlsError = client.lastError(error, sizeof(error));
+    Serial.printf("No GitHub HTTP response; TLS error %d: %s; WiFi status %d\n", tlsError, error, WiFi.status());
+    client.stop();
+    return false;
+  }
 
   int statusCode = 0;
   if (statusLine.startsWith("HTTP/")) {
     statusCode = statusLine.substring(9, 12).toInt();
   }
+  lastHttpStatus = statusCode;
 
   while (client.connected()) {
     String header = client.readStringUntil('\n');
@@ -437,6 +572,170 @@ bool uploadPhotoToGitHub(const String &fileName, const uint8_t *data, size_t len
   return false;
 }
 
+bool readGitHubSha(const String &repoPath, String &sha) {
+  sha = String();
+  WiFiClientSecure client;
+#if VERIFY_GITHUB_TLS
+  client.setCACert(GITHUB_ROOT_CA);
+#else
+  client.setInsecure();
+#endif
+  client.setConnectionTimeout(15000);
+  client.setTimeout(15000);
+  HTTPClient http;
+  // ArduinoJson can parse the body stream without buffering Base64 image data.
+  http.useHTTP10(true);
+  http.setReuse(false);
+  http.setTimeout(15000);
+  String url = String("https://") + GITHUB_API_HOST + "/repos/" + GITHUB_OWNER + "/" + GITHUB_REPO + "/contents/" + repoPath + "?ref=" + GITHUB_BRANCH;
+  if (!http.begin(client, url)) return false;
+  http.addHeader("Authorization", String("Bearer ") + GITHUB_TOKEN);
+  http.addHeader("Accept", "application/vnd.github+json");
+  http.addHeader("User-Agent", "esp32-cam-timelapse");
+  int code = http.GET();
+  lastHttpStatus = code;
+  if (code == 404) { http.end(); return true; }
+  if (code != 200) { http.end(); return false; }
+  JsonDocument filter;
+  filter["sha"] = true;
+  JsonDocument document;
+  auto error = deserializeJson(document, http.getStream(), DeserializationOption::Filter(filter));
+  if (!error) sha = document["sha"].as<String>();
+  http.end();
+  return !error && sha.length() == 40;
+}
+
+String gitBlobSha(File &file) {
+  mbedtls_sha1_context hash;
+  mbedtls_sha1_init(&hash);
+  mbedtls_sha1_starts(&hash);
+  String header = String("blob ") + file.size();
+  mbedtls_sha1_update(&hash, reinterpret_cast<const uint8_t *>(header.c_str()), header.length() + 1);
+  file.seek(0);
+  uint8_t buffer[1024];
+  while (file.available()) {
+    size_t count = file.read(buffer, sizeof(buffer));
+    if (!count) { mbedtls_sha1_free(&hash); return String(); }
+    mbedtls_sha1_update(&hash, buffer, count);
+  }
+  uint8_t digest[20];
+  mbedtls_sha1_finish(&hash, digest);
+  mbedtls_sha1_free(&hash);
+  char hex[41];
+  for (size_t i = 0; i < 20; i++) snprintf(hex + i * 2, 3, "%02x", digest[i]);
+  return String(hex);
+}
+
+bool uploadPendingPhoto(const String &name, bool clockReady) {
+  String marker = String(OUTBOX_PATH) + "/" + name;
+  String path = String(LOCAL_PHOTO_PATH) + "/" + name;
+  File photo = SD_MMC.open(path, FILE_READ);
+  if (!photo || !photo.size()) {
+    // A power cut during capture may leave a marker and an unfinished .part file.
+    photo.close();
+    SD_MMC.remove(path + ".part");
+    SD_MMC.remove(marker);
+    noteError("incomplete_photo");
+    return true;
+  }
+  String repoPath = String(GITHUB_PHOTO_PATH) + "/" + name;
+  bool uploaded = putGitHubContent(repoPath, nullptr, photo.size(), clockReady, String(), &photo);
+  if (!uploaded && lastHttpStatus == 422) {
+    String remoteSha;
+    String localSha = gitBlobSha(photo);
+    bool checked = localSha.length() && readGitHubSha(repoPath, remoteSha);
+    uploaded = checked && remoteSha == localSha;
+    if (checked && remoteSha.length() && remoteSha != localSha) {
+      photo.close();
+      noteError("remote_photo_conflict");
+      return false;
+    }
+    if (uploaded) Serial.println("Identical photo already exists on GitHub");
+  }
+  photo.close();
+  if (!uploaded) {
+    noteError(String("upload_http_") + lastHttpStatus);
+    return false;
+  }
+  // Never remove the original photo. Only acknowledge the outbox entry.
+  if (!SD_MMC.remove(marker)) { noteError("outbox_ack_failed"); return false; }
+  lastUploadedFile = name;
+  lastUploadAt = static_cast<uint32_t>(time(nullptr));
+  return true;
+}
+
+void flushOutbox(bool clockReady, const String &priorityName) {
+  unsigned long started = millis();
+  for (size_t attempt = 0; attempt < MAX_UPLOADS_PER_WAKE && millis() - started < UPLOAD_BUDGET_MS; attempt++) {
+    String name = attempt == 0 && priorityName.length() && SD_MMC.exists(String(OUTBOX_PATH) + "/" + priorityName) ? priorityName : oldestPending();
+    if (!name.length()) break;
+    if (!uploadPendingPhoto(name, clockReady)) break;
+  }
+}
+
+void loadLocalStatus() {
+  File file = SD_MMC.open(LOCAL_STATUS_PATH, FILE_READ);
+  if (!file) file = SD_MMC.open(String(LOCAL_STATUS_PATH) + ".part", FILE_READ);
+  if (!file) return;
+  JsonDocument document;
+  if (!deserializeJson(document, file)) {
+    lastCapturedFile = document["lastCapturedFile"].as<String>();
+    lastUploadedFile = document["lastUploadedFile"].as<String>();
+    lastCaptureAt = document["lastCaptureAt"] | 0U;
+    lastUploadAt = document["lastUploadAt"] | 0U;
+  }
+  file.close();
+}
+
+void publishStatus(bool sdReady, bool wifiReady, bool clockReady) {
+  JsonDocument document;
+  uint32_t now = clockReady ? static_cast<uint32_t>(time(nullptr)) : 0;
+  document["schemaVersion"] = 1;
+  document["camera"] = CAMERA_NAME;
+  document["firmwareVersion"] = FIRMWARE_VERSION;
+  document["updatedAt"] = now;
+  document["captureIntervalMinutes"] = CAPTURE_INTERVAL_MINUTES;
+  document["nextCaptureAt"] = now ? now + CAPTURE_INTERVAL_MINUTES * 60 : 0;
+  document["lastCaptureAt"] = lastCaptureAt;
+  document["lastUploadAt"] = lastUploadAt;
+  document["lastCapturedFile"] = lastCapturedFile;
+  document["lastUploadedFile"] = lastUploadedFile;
+  document["pendingUploads"] = sdReady ? static_cast<int32_t>(pendingCount()) : -1;
+  document["sdReady"] = sdReady;
+  if (sdReady) {
+    document["sdTotalBytes"] = SD_MMC.totalBytes();
+    document["sdFreeBytes"] = SD_MMC.totalBytes() - SD_MMC.usedBytes();
+  }
+  document["wifiConnected"] = wifiReady;
+  if (wifiReady) document["wifiRssi"] = WiFi.RSSI();
+  document["error"] = cycleError;
+  if (sdReady) {
+    String temporary = String(LOCAL_STATUS_PATH) + ".part";
+    File file = SD_MMC.open(temporary, FILE_WRITE);
+    if (file) {
+      size_t expected = measureJson(document);
+      size_t written = serializeJson(document, file);
+      file.flush();
+      file.close();
+      if (written == expected) {
+        SD_MMC.remove(LOCAL_STATUS_PATH);
+        if (!SD_MMC.rename(temporary, LOCAL_STATUS_PATH)) noteError("status_save_failed");
+      } else { SD_MMC.remove(temporary); noteError("status_save_failed"); }
+    } else noteError("status_save_failed");
+  }
+  document["error"] = cycleError;
+  if (!wifiReady || !clockReady) return;
+  String repoPath = String(GITHUB_STATUS_PATH) + "/" + CAMERA_NAME + ".json";
+  String sha;
+  if (!readGitHubSha(repoPath, sha)) {
+    Serial.println("Could not read remote camera status metadata");
+    return;
+  }
+  String json;
+  serializeJson(document, json);
+  putGitHubContent(repoPath, reinterpret_cast<const uint8_t *>(json.c_str()), json.length(), clockReady, sha);
+}
+
 void goToSleep() {
   Serial.printf("Sleeping for %llu minute(s)\n", CAPTURE_INTERVAL_MINUTES);
   WiFi.disconnect(true);
@@ -453,31 +752,36 @@ void setup() {
   Serial.printf("\nESP32-CAM timelapse boot #%lu\n", static_cast<unsigned long>(bootCount));
 
   bool sdReady = initSdCard();
+  if (sdReady) { initOutbox(); loadLocalStatus(); }
+  else noteError("sd_unavailable");
   bool cameraReady = initCamera();
-  if (!cameraReady) {
-    goToSleep();
-    return;
-  }
+  if (!cameraReady) noteError("camera_init_failed");
 
   bool wifiReady = connectWiFi();
+  if (!wifiReady) noteError("wifi_unavailable");
   bool timeReady = wifiReady ? syncClock() : false;
+  if (!timeReady) noteError("clock_unavailable");
 
   String fileName = makeFileName(timeReady);
-  camera_fb_t *frame = capturePhoto();
-  if (!frame) {
-    goToSleep();
-    return;
-  }
-
-  if (sdReady) {
-    savePhotoToSd(fileName, frame->buf, frame->len);
-  }
-
-  if (wifiReady) {
-    uploadPhotoToGitHub(fileName, frame->buf, frame->len, timeReady);
-  }
-
-  esp_camera_fb_return(frame);
+  camera_fb_t *frame = cameraReady ? capturePhoto() : nullptr;
+  if (frame) {
+    lastCapturedFile = fileName;
+    lastCaptureAt = timeReady ? static_cast<uint32_t>(time(nullptr)) : 0;
+    bool saved = sdReady && savePhotoToSd(fileName, frame->buf, frame->len);
+    if (!saved) {
+      noteError("sd_save_failed");
+      if (wifiReady && timeReady && putGitHubContent(String(GITHUB_PHOTO_PATH) + "/" + fileName, frame->buf, frame->len, timeReady)) {
+        lastUploadedFile = fileName;
+        lastUploadAt = static_cast<uint32_t>(time(nullptr));
+      }
+    }
+    esp_camera_fb_return(frame);
+  } else if (cameraReady) noteError("capture_failed");
+  if (cameraReady) esp_camera_deinit();
+  pinMode(PWDN_GPIO_NUM, OUTPUT);
+  digitalWrite(PWDN_GPIO_NUM, HIGH);
+  if (sdReady && wifiReady && timeReady) flushOutbox(timeReady, frame ? fileName : String());
+  publishStatus(sdReady, wifiReady, timeReady);
   goToSleep();
 }
 

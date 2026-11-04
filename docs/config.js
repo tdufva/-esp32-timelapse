@@ -1,4 +1,6 @@
 window.TIMELAPSE_CONFIG = {
+  timeZone: "Europe/Helsinki",
+  cameraStatusPath: "status/esp32cam.json",
   owner: "tdufva",
   repo: "-esp32-timelapse",
   branch: "main",

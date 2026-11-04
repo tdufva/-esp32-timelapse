@@ -46,3 +46,8 @@
 
 #define WIFI_CONNECT_TIMEOUT_MS 30000UL
 #define NTP_TIMEOUT_MS 15000UL
+
+// Upload the newest photo first, then retry the SD outbox within this budget.
+#define MAX_UPLOADS_PER_WAKE 6
+#define UPLOAD_BUDGET_MS 90000UL
+#define GITHUB_STATUS_PATH "status"

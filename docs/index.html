@@ -4,112 +4,72 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ESP32 Timelapse</title>
-    <link rel="stylesheet" href="styles.css?v=20260521-controls">
-    <script src="config.js?v=20260521-controls"></script>
-    <script src="app.js?v=20260521-controls" defer></script>
+    <link rel="stylesheet" href="styles.css?v=20261104">
+    <script src="config.js?v=20261104"></script>
+    <script type="module" src="app.js?v=20261104"></script>
   </head>
   <body>
     <main class="app-shell">
-      <header class="topbar" aria-label="Ylapalkki">
-        <div class="brand">
-          <span class="brand-mark" aria-hidden="true"></span>
-          <div>
-            <h1>ESP32 Timelapse</h1>
-            <p id="sourceLabel">GitHub Pages</p>
-          </div>
-        </div>
-        <div class="status-strip" aria-live="polite">
-          <span id="syncState" class="status-dot">Valmis</span>
-          <span id="frameCount">0 kuvaa</span>
-          <span id="latestFrame">Ei kuvia</span>
-        </div>
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark" aria-hidden="true"></span><div><h1>ESP32 Timelapse</h1><p id="sourceLabel">GitHub Pages</p></div></div>
+        <div class="status-strip" aria-live="polite"><span id="syncState">Valmis</span><span id="frameCount">0 kuvaa</span><span id="latestFrame">Ei kuvia</span></div>
       </header>
-
+      <details class="camera-status" open>
+        <summary>Kameran tila <span id="cameraHealth" class="health-badge" data-level="unknown">Ei tilatietoja</span></summary>
+        <dl class="health-grid">
+          <div><dt>Viimeisin kuva</dt><dd id="cameraCaptured">—</dd></div>
+          <div><dt>Viimeisin lähetys</dt><dd id="cameraUploaded">—</dd></div>
+          <div><dt>Lähetysjonossa</dt><dd id="cameraPending">—</dd></div>
+          <div><dt>Kortilla vapaana</dt><dd id="cameraStorage">—</dd></div>
+          <div><dt>Seuraava kuva, arvio</dt><dd id="cameraNext">—</dd></div>
+          <div><dt>Ohjelmaversio</dt><dd id="cameraFirmware">—</dd></div>
+        </dl>
+        <p id="cameraNote" class="camera-note" aria-live="polite">Odottaa tilatietoja</p>
+      </details>
+      <section class="range-toolbar" aria-label="Aikaväli">
+        <div id="rangePresets" class="segmented" role="group" aria-label="Aikavälin pikavalinta">
+          <button type="button" data-range="all" aria-pressed="true">Kaikki</button><button type="button" data-range="today" aria-pressed="false">Tänään</button><button type="button" data-range="week" aria-pressed="false">Viikko</button><button type="button" data-range="month" aria-pressed="false">Kuukausi</button>
+        </div>
+        <div class="date-fields"><label>Alkaa<input id="rangeStart" type="date"></label><label>Päättyy<input id="rangeEnd" type="date"></label></div>
+        <output id="rangeSummary" aria-live="polite">0 kuvaa</output>
+        <p id="rangeError" class="error-message" role="alert" hidden></p>
+      </section>
       <section class="workspace" aria-label="Timelapse-soitin">
         <div class="viewer">
-          <div class="image-stage">
-            <canvas id="frameCanvas" aria-label="Pikselöity timelapse-kuva"></canvas>
-            <div id="emptyState" class="empty-state">
-              <strong>Odottaa kuvia</strong>
-              <span>Kun ESP32 lataa ensimmaisen kuvan GitHubiin, soitin kaynnistyy automaattisesti.</span>
-            </div>
-          </div>
-
-          <div class="timeline-row">
-            <input id="frameSlider" type="range" min="0" max="0" value="0" aria-label="Kuvan sijainti">
-            <output id="frameLabel" for="frameSlider">0 / 0</output>
-          </div>
+          <div class="image-stage"><canvas id="frameCanvas" aria-label="Pikselöity timelapse-kuva"></canvas><div id="emptyState" class="empty-state"><strong>Odottaa kuvia</strong><span id="emptyMessage">GitHubissa ei ole vielä kuvia.</span></div></div>
+          <div class="timeline-row"><input id="frameSlider" type="range" min="0" max="0" value="0" aria-label="Kuvan sijainti"><output id="frameLabel" for="frameSlider">0 / 0</output></div>
+          <div class="frame-caption"><time id="currentTime">—</time><span id="currentName">—</span></div>
+          <div id="thumbnailStrip" class="thumbnail-strip" role="group" aria-label="Kuvien pikkukuvat"></div>
         </div>
-
-        <aside class="control-panel" aria-label="Ohjaimet">
+        <aside class="control-panel" aria-label="Katseluasetukset">
+          <h2>Katselu</h2>
           <div class="controls">
-            <button id="playToggle" class="icon-button primary" type="button" title="Toista tai pysayta" aria-label="Toista tai pysayta">
-              <svg class="icon icon-play" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M8 5v14l11-7z"></path>
-              </svg>
-              <svg class="icon icon-pause" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M7 5h4v14H7zM13 5h4v14h-4z"></path>
-              </svg>
-            </button>
-            <button id="prevFrame" class="icon-button" type="button" title="Edellinen kuva" aria-label="Edellinen kuva">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M11 6v12l-8-6 8-6Zm2 0h3v12h-3V6Z"></path>
-              </svg>
-            </button>
-            <button id="nextFrame" class="icon-button" type="button" title="Seuraava kuva" aria-label="Seuraava kuva">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M13 18V6l8 6-8 6ZM8 6h3v12H8V6Z"></path>
-              </svg>
-            </button>
-            <button id="refreshFrames" class="icon-button" type="button" title="Paivita" aria-label="Paivita kuvat">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M17.7 6.3A8 8 0 1 0 20 12h-2.4a5.6 5.6 0 1 1-1.6-4l-2.2 2.2H21V3l-3.3 3.3Z"></path>
-              </svg>
-            </button>
+            <button id="playToggle" class="icon-button primary" type="button" title="Toista tai pysäytä" aria-label="Toista tai pysäytä"><i data-lucide="play" class="icon icon-play" aria-hidden="true"></i><i data-lucide="pause" class="icon icon-pause" aria-hidden="true"></i></button>
+            <button id="prevFrame" class="icon-button" type="button" title="Edellinen kuva" aria-label="Edellinen kuva"><i data-lucide="skip-back" class="icon" aria-hidden="true"></i></button>
+            <button id="nextFrame" class="icon-button" type="button" title="Seuraava kuva" aria-label="Seuraava kuva"><i data-lucide="skip-forward" class="icon" aria-hidden="true"></i></button>
+            <button id="refreshFrames" class="icon-button" type="button" title="Päivitä kuvat ja tila" aria-label="Päivitä kuvat ja tila"><i data-lucide="refresh-cw" class="icon" aria-hidden="true"></i></button>
           </div>
-
-          <label class="speed-control">
-            <span>Nopeus</span>
-            <input id="speedSlider" type="range" min="1" max="24" value="8">
-            <output id="speedLabel" for="speedSlider">8 fps</output>
-          </label>
-
-          <label class="setting-control">
-            <span>Resoluutio</span>
-            <input id="resolutionSlider" type="range" min="0" max="8" value="5">
-            <output id="resolutionLabel" for="resolutionSlider">128 x 96 px</output>
-          </label>
-
-          <label class="setting-control">
-            <span>Tyyli</span>
-            <select id="styleSelect">
-              <option value="minimal">Minimalistinen</option>
-              <option value="nature">Luontodokumentti</option>
-              <option value="cinematic">Cinematic</option>
-              <option value="mono">Mustavalkoinen</option>
-            </select>
-          </label>
-
-          <dl class="stat-grid">
-            <div>
-              <dt>Ensimmainen</dt>
-              <dd id="firstDate">-</dd>
-            </div>
-            <div>
-              <dt>Viimeisin</dt>
-              <dd id="lastDate">-</dd>
-            </div>
-            <div>
-              <dt>Kansion polku</dt>
-              <dd id="pathValue">photos</dd>
-            </div>
-            <div>
-              <dt>Kuva</dt>
-              <dd id="currentName">-</dd>
-            </div>
-          </dl>
+          <label class="speed-control"><span>Nopeus</span><input id="speedSlider" type="range" min="1" max="24" value="8"><output id="speedLabel" for="speedSlider">8 fps</output></label>
+          <label class="setting-control"><span>Resoluutio</span><input id="resolutionSlider" type="range" min="0" max="8" value="5"><output id="resolutionLabel" for="resolutionSlider">128 × 96 px</output></label>
+          <label class="setting-control"><span>Tyyli</span><select id="styleSelect"><option value="minimal">Minimalistinen</option><option value="nature">Luontodokumentti</option><option value="cinematic">Cinematic</option><option value="mono">Mustavalkoinen</option></select></label>
+          <button id="exportOpen" class="command-button primary" type="button" disabled><i data-lucide="download" class="icon" aria-hidden="true"></i>Vie video</button>
+          <dl class="stat-grid"><div><dt>Ensimmäinen</dt><dd id="firstDate">—</dd></div><div><dt>Viimeisin</dt><dd id="lastDate">—</dd></div><div><dt>Kansio</dt><dd id="pathValue">photos</dd></div></dl>
         </aside>
+        <section class="calendar-panel" aria-label="Kuvakalenteri">
+          <div class="calendar-heading"><h2>Kuvakalenteri</h2><div class="month-controls"><button id="monthPrev" class="icon-button small" type="button" title="Edellinen kuukausi" aria-label="Edellinen kuukausi"><i data-lucide="chevron-left" class="icon" aria-hidden="true"></i></button><input id="calendarMonth" type="month" aria-label="Kuukausi"><button id="monthNext" class="icon-button small" type="button" title="Seuraava kuukausi" aria-label="Seuraava kuukausi"><i data-lucide="chevron-right" class="icon" aria-hidden="true"></i></button></div></div>
+          <div class="weekdays" aria-hidden="true"><span>Ma</span><span>Ti</span><span>Ke</span><span>To</span><span>Pe</span><span>La</span><span>Su</span></div>
+          <div id="calendarGrid" class="calendar-grid" role="group" aria-label="Päivät"></div>
+        </section>
       </section>
     </main>
+    <dialog id="exportDialog" aria-labelledby="exportTitle">
+      <div class="dialog-heading"><h2 id="exportTitle">Videovienti</h2><button id="exportClose" class="icon-button small" type="button" title="Sulje" aria-label="Sulje"><i data-lucide="x" class="icon" aria-hidden="true"></i></button></div>
+      <p id="exportSummary" class="export-summary"></p>
+      <form id="exportForm">
+        <div class="export-fields"><label>Tiedostomuoto<select id="exportFormat"><option value="mp4">MP4</option><option value="gif">GIF</option></select></label><label>Kuvanopeus<input id="exportFps" type="number" min="1" max="24" step="1" value="8" required></label></div>
+        <p id="exportDuration" class="muted"></p><progress id="exportProgress" value="0" max="1" hidden></progress><p id="exportMessage" role="status" aria-live="polite"></p>
+        <div class="dialog-actions"><button id="exportCancel" class="command-button" type="button" hidden><i data-lucide="x" class="icon" aria-hidden="true"></i>Keskeytä</button><button id="exportStart" class="command-button primary" type="submit"><i data-lucide="download" class="icon" aria-hidden="true"></i>Luo ja lataa</button></div>
+      </form>
+    </dialog>
   </body>
 </html>

@@ -1,3 +1,7 @@
+import { parseFrameDate, filterFrames, CAMERA_TIME_ZONE } from './timelapse-core.mjs';
+import { createDashboard } from './dashboard.mjs';
+import { createIcons, icons } from './vendor/lucide.mjs';
+
 const config = {
   owner: "your-github-user",
   repo: "esp32-timelapse",
@@ -11,10 +15,16 @@ const config = {
   solarBrightness: 1.18,
   solarSaturation: 1.35,
   solarLevels: 5,
+  timeZone: CAMERA_TIME_ZONE,
+  cameraStatusPath: 'status/esp32cam.json',
   ...(window.TIMELAPSE_CONFIG || {})
 };
 
 const state = {
+  allFrames: [],
+  range: { start: '', end: '' },
+  thumbnailBucket: -1,
+  loading: false,
   frames: [],
   index: 0,
   playing: true,
@@ -48,13 +58,39 @@ const els = {
   pathValue: document.querySelector("#pathValue"),
   currentName: document.querySelector("#currentName")
 };
+els.currentTime = document.querySelector('#currentTime');
+els.thumbnailStrip = document.querySelector('#thumbnailStrip');
+els.exportOpen = document.querySelector('#exportOpen');
+els.emptyMessage = document.querySelector('#emptyMessage');
 
 const renderState = {
   token: 0,
-  sourceImage: new Image()
+  images: new Map()
 };
 
-renderState.sourceImage.crossOrigin = "anonymous";
+function loadImage(url, signal) {
+  if (!renderState.images.has(url)) {
+    const promise = new Promise((resolve, reject) => {
+      const image = new Image();
+      image.crossOrigin = 'anonymous';
+      const timer = window.setTimeout(() => { image.onload = image.onerror = null; image.src = ''; reject(new Error('Kuvan lataus aikakatkaistiin')); }, 20000);
+      image.onload = () => { window.clearTimeout(timer); resolve(image); };
+      image.onerror = () => { window.clearTimeout(timer); reject(new Error('Kuva ei latautunut')); };
+      image.src = url;
+    });
+    renderState.images.set(url, promise);
+    promise.catch(() => { if (renderState.images.get(url) === promise) renderState.images.delete(url); });
+    if (renderState.images.size > 24) renderState.images.delete(renderState.images.keys().next().value);
+  }
+  const promise = renderState.images.get(url);
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(new DOMException('Keskeytetty', 'AbortError'));
+  let abort;
+  return Promise.race([promise, new Promise((_, reject) => {
+    abort = () => reject(new DOMException('Keskeytetty', 'AbortError'));
+    signal.addEventListener('abort', abort, { once: true });
+  })]).finally(() => signal.removeEventListener('abort', abort));
+}
 
 const resolutionPresets = [
   { id: "4x6", label: "4 x 6 px", longSide: 6 },
@@ -113,6 +149,7 @@ function formatDate(date) {
   if (!date) return "-";
   return new Intl.DateTimeFormat("fi-FI", {
     year: "numeric",
+    timeZone: config.timeZone,
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -121,18 +158,7 @@ function formatDate(date) {
 }
 
 function dateFromName(name) {
-  const match = name.match(/(\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})/);
-  if (!match) return null;
-
-  const [, year, month, day, hour, minute, second] = match;
-  return new Date(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute),
-    Number(second)
-  );
+  return parseFrameDate(name, config.timeZone);
 }
 
 function imageFiles(items) {
@@ -140,14 +166,13 @@ function imageFiles(items) {
 
   return items
     .filter((item) => item.type === "blob" && item.path?.startsWith(photoPrefix) && /\.(jpe?g|png|webp)$/i.test(item.path))
-    .sort((a, b) => a.path.localeCompare(b.path))
     .map((item) => ({
       name: item.path.split("/").pop(),
       path: item.path,
       url: rawUrl(item.path),
       size: item.size || 0,
       date: dateFromName(item.path)
-    }));
+    })).sort((a, b) => (a.date?.getTime() || 0) - (b.date?.getTime() || 0) || a.name.localeCompare(b.name));
 }
 
 function updateStats() {
@@ -161,11 +186,53 @@ function updateStats() {
   els.firstDate.textContent = first?.date ? formatDate(first.date) : "-";
   els.lastDate.textContent = last?.date ? formatDate(last.date) : "-";
   els.currentName.textContent = current?.name || "-";
+  els.currentTime.textContent = current?.date ? formatDate(current.date) : current ? 'Aika tuntematon' : '—';
+  els.exportOpen.disabled = total === 0;
+  els.playToggle.disabled = total === 0;
+  els.prevFrame.disabled = total < 2;
+  els.nextFrame.disabled = total < 2;
   els.pathValue.textContent = config.photoPath;
   els.frameSlider.max = String(Math.max(total - 1, 0));
   els.frameSlider.value = String(state.index);
   els.frameSlider.disabled = total < 2;
   els.frameLabel.value = total ? `${state.index + 1} / ${total}` : "0 / 0";
+  renderThumbnails();
+}
+
+function renderThumbnails() {
+  const bucket = Math.floor(state.index / 20);
+  if (bucket !== state.thumbnailBucket) {
+    state.thumbnailBucket = bucket;
+    els.thumbnailStrip.replaceChildren(...state.frames.slice(bucket * 20, bucket * 20 + 20).map((frame, offset) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.index = bucket * 20 + offset;
+      button.className = 'thumbnail';
+      button.title = frame.name;
+      button.setAttribute('aria-label', frame.date ? formatDate(frame.date) : frame.name);
+      const image = new Image();
+      image.crossOrigin = 'anonymous';
+      image.loading = 'lazy';
+      image.src = frame.url;
+      image.alt = '';
+      const time = document.createElement('span');
+      time.textContent = frame.date ? new Intl.DateTimeFormat('fi-FI', { timeZone: config.timeZone, hour: '2-digit', minute: '2-digit' }).format(frame.date) : '—';
+      button.append(image, time);
+      return button;
+    }));
+  }
+  els.thumbnailStrip.querySelectorAll('[data-index]').forEach((button) => button.setAttribute('aria-current', String(Number(button.dataset.index) === state.index)));
+}
+
+function applyFilters(keepPosition = true) {
+  const previous = state.frames[state.index]?.name;
+  state.frames = filterFrames(state.allFrames, state.range, config.timeZone);
+  const index = keepPosition ? state.frames.findIndex((frame) => frame.name === previous) : -1;
+  state.index = index >= 0 ? index : Math.max(0, state.frames.length - 1);
+  state.thumbnailBucket = -1;
+  els.emptyMessage.textContent = state.allFrames.length ? 'Valitulla aikavälillä ei ole kuvia.' : 'GitHubissa ei ole vielä kuvia.';
+  updateStats();
+  renderFrame();
 }
 
 function clamp(value, min, max) {
@@ -237,8 +304,8 @@ function posterize(value, levels) {
   return Math.round(Math.round(value * (safeLevels - 1)) / (safeLevels - 1) * 255);
 }
 
-function resolveRenderSize(image) {
-  const preset = resolutionPresets[state.resolutionIndex] || resolutionPresets[5];
+function resolveRenderSize(image, resolutionIndex = state.resolutionIndex) {
+  const preset = resolutionPresets[resolutionIndex] || resolutionPresets[5];
   const sourceWidth = Math.max(1, image.naturalWidth || image.width || 1);
   const sourceHeight = Math.max(1, image.naturalHeight || image.height || 1);
 
@@ -355,8 +422,8 @@ function gradeMono(red, green, blue) {
   return [gray, gray, gray];
 }
 
-function gradePixel(red, green, blue) {
-  switch (state.styleMode) {
+function gradePixel(red, green, blue, styleMode = state.styleMode) {
+  switch (styleMode) {
     case "nature":
       return gradeNature(red, green, blue);
     case "cinematic":
@@ -368,10 +435,10 @@ function gradePixel(red, green, blue) {
   }
 }
 
-function colorGrade(imageData) {
+function colorGrade(imageData, styleMode = state.styleMode) {
   const data = imageData.data;
   for (let index = 0; index < data.length; index += 4) {
-    const [r, g, b] = gradePixel(data[index], data[index + 1], data[index + 2]);
+    const [r, g, b] = gradePixel(data[index], data[index + 1], data[index + 2], styleMode);
     data[index] = r;
     data[index + 1] = g;
     data[index + 2] = b;
@@ -380,22 +447,28 @@ function colorGrade(imageData) {
 }
 
 function drawPixelFrame(image) {
-  const { width, height, full } = resolveRenderSize(image);
+  const { canvas, width, height, full } = pixelCanvas(image, state);
+  els.frameCanvas.width = width;
+  els.frameCanvas.height = height;
+  const target = els.frameCanvas.getContext('2d');
+  target.imageSmoothingEnabled = false;
+  target.drawImage(canvas, 0, 0);
+  updateResolutionLabel(width, height, full);
+}
+
+function pixelCanvas(image, settings) {
+  const { width, height, full } = resolveRenderSize(image, settings.resolutionIndex);
   const workCanvas = document.createElement("canvas");
   const workContext = workCanvas.getContext("2d", { willReadFrequently: true });
-  const targetContext = els.frameCanvas.getContext("2d");
 
   workCanvas.width = width;
   workCanvas.height = height;
   workContext.imageSmoothingEnabled = true;
   workContext.drawImage(image, 0, 0, width, height);
 
-  const graded = colorGrade(workContext.getImageData(0, 0, width, height));
-  els.frameCanvas.width = width;
-  els.frameCanvas.height = height;
-  targetContext.imageSmoothingEnabled = false;
-  targetContext.putImageData(graded, 0, 0);
-  updateResolutionLabel(width, height, full);
+  const graded = colorGrade(workContext.getImageData(0, 0, width, height), settings.styleMode);
+  workContext.putImageData(graded, 0, 0);
+  return { canvas: workCanvas, width, height, full };
 }
 
 async function renderFrame() {
@@ -414,13 +487,13 @@ async function renderFrame() {
   els.frameCanvas.style.display = "block";
 
   try {
-    renderState.sourceImage.src = frame.url;
-    await renderState.sourceImage.decode();
+    const image = await loadImage(frame.url);
     if (token !== renderState.token) {
       return;
     }
-    drawPixelFrame(renderState.sourceImage);
+    drawPixelFrame(image);
   } catch (error) {
+    if (token !== renderState.token) return;
     console.error(error);
     setStatus("Kuvavirhe");
   }
@@ -430,11 +503,10 @@ async function renderFrame() {
 }
 
 function preloadAround(index) {
-  for (let step = 1; step <= 3; step++) {
+  for (let step = 1; step <= 2; step++) {
     const frame = state.frames[(index + step) % state.frames.length];
     if (frame) {
-      const img = new Image();
-      img.src = frame.url;
+      loadImage(frame.url).catch(() => {});
     }
   }
 }
@@ -472,6 +544,7 @@ function restartPlayback() {
 }
 
 async function loadFrames({ keepPosition = true } = {}) {
+  if (state.loading) return;
   if (!isConfigured()) {
     stopPlayback();
     setStatus("Asetukset puuttuvat");
@@ -481,6 +554,8 @@ async function loadFrames({ keepPosition = true } = {}) {
   }
 
   const previousName = state.frames[state.index]?.name;
+  state.loading = true;
+  els.refreshFrames.disabled = true;
   setStatus("Paivitetaan");
   els.sourceLabel.textContent = `${config.owner}/${config.repo}`;
 
@@ -496,24 +571,49 @@ async function loadFrames({ keepPosition = true } = {}) {
 
     const payload = await response.json();
     const files = Array.isArray(payload.tree) ? imageFiles(payload.tree) : [];
-    state.frames = files;
-
-    if (keepPosition && previousName) {
-      const nextIndex = state.frames.findIndex((frame) => frame.name === previousName);
-      state.index = nextIndex >= 0 ? nextIndex : Math.max(state.frames.length - 1, 0);
-    } else {
-      state.index = Math.max(state.frames.length - 1, 0);
-    }
+    state.allFrames = files;
+    applyFilters(keepPosition && Boolean(previousName));
+    dashboard.updateFrames(files);
 
     setStatus(payload.truncated ? "Osittainen" : files.length ? "Synkassa" : "Ei kuvia");
-    renderFrame();
     restartPlayback();
+    const statusEntry = payload.tree?.find((item) => item.path === config.cameraStatusPath);
+    if (!statusEntry) dashboard.updateStatus(null);
+    else {
+      try {
+        const response = await fetch(`${rawUrl(config.cameraStatusPath)}?v=${statusEntry.sha}`, { signal: AbortSignal.timeout(15000) });
+        if (!response.ok) throw new Error('status');
+        dashboard.updateStatus(await response.json());
+      } catch {
+        dashboard.updateStatus(null, 'Tilatiedon haku epäonnistui');
+      }
+    }
   } catch (error) {
     console.error(error);
     setStatus("Virhe");
     stopPlayback();
+    updateStats();
+  } finally {
+    state.loading = false;
+    els.refreshFrames.disabled = false;
   }
 }
+
+const dashboard = createDashboard({
+  getFrames: () => state.frames,
+  getSettings: () => ({ resolutionIndex: state.resolutionIndex, styleMode: state.styleMode, fps: state.fps, styleLabel: stylePresets[state.styleMode].label, resolutionLabel: els.resolutionLabel.textContent }),
+  applyRange: (range) => { state.range = range; applyFilters(false); },
+  renderExport: async (frame, settings, signal) => pixelCanvas(await loadImage(frame.url, signal), settings).canvas,
+  timeZone: config.timeZone,
+});
+createIcons({ icons });
+els.thumbnailStrip.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-index]');
+  if (!button) return;
+  stopPlayback();
+  state.index = Number(button.dataset.index);
+  renderFrame();
+});
 
 els.playToggle.addEventListener("click", () => {
   if (state.playing) {

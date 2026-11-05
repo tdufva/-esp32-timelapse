@@ -1,5 +1,5 @@
 import { calendarCells, cameraHealth, dateKey, presetRange, shiftDateKey, normalizeStatus, CAMERA_TIME_ZONE } from './timelapse-core.mjs?v=3';
-import { exportTimelapse } from './export.mjs?v=3';
+import { exportTimelapse } from './export.mjs?v=4';
 
 const errorLabels = {
   sd_unavailable: 'Muistikortti ei ole käytettävissä', camera_init_failed: 'Kameran alustus epäonnistui',
@@ -126,6 +126,7 @@ export function createDashboard({ getFrames, getSettings, applyRange, renderExpo
   $('exportOpen').addEventListener('click', () => {
     const settings = getSettings();
     $('exportFps').value = settings.fps;
+    $('exportAspect').value = settings.aspect;
     $('exportSummary').textContent = `${settings.styleLabel} · ${settings.resolutionLabel} · ${settings.paletteLabel}`;
     $('exportMessage').textContent = '';
     $('exportProgress').hidden = true;
@@ -143,19 +144,20 @@ export function createDashboard({ getFrames, getSettings, applyRange, renderExpo
     exportController = new AbortController();
     const controller = exportController;
     const frames = [...getFrames()];
-    const settings = { ...getSettings() };
+    const settings = { ...getSettings(), aspect: $('exportAspect').value };
     const format = $('exportFormat').value;
     const fps = Number($('exportFps').value);
     $('exportStart').disabled = true;
     $('exportFormat').disabled = true;
     $('exportFps').disabled = true;
+    $('exportAspect').disabled = true;
     $('exportCancel').hidden = false;
     $('exportProgress').hidden = false;
     $('exportProgress').value = 0;
     $('exportMessage').textContent = 'Valmistellaan…';
     try {
-      const blob = await exportTimelapse({ frames, fps, format, paletteColors: settings.paletteColors, signal: controller.signal,
-        render: (frame, signal) => renderExport(frame, settings, signal),
+      const blob = await exportTimelapse({ frames, fps, format, aspect: settings.aspect, paletteColors: settings.paletteColors, signal: controller.signal,
+        render: (_frame, signal, index) => renderExport(frames, index, settings, signal),
         onProgress: (progress) => {
           $('exportProgress').value = progress;
           $('exportMessage').textContent = `${Math.round(progress * 100)} %`;
@@ -179,6 +181,7 @@ export function createDashboard({ getFrames, getSettings, applyRange, renderExpo
       $('exportStart').disabled = false;
       $('exportFormat').disabled = false;
       $('exportFps').disabled = false;
+      $('exportAspect').disabled = false;
       $('exportCancel').hidden = true;
     }
   });

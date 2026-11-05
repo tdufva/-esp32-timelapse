@@ -91,7 +91,12 @@ Sivun katseluasetukset:
 
 - `Resoluutio`: liukusaadin asteikolla 4 x 6 px -> tayden kuvan resoluutio.
 - `Tyyli`: nelja palettia: minimalistinen, luontodokumentti, cinematic ja mustavalkoinen.
-- `Varipaletti`: vapaa, 8 tai 16 varia. Kiintea paletti pysyy samana kaikissa ruuduissa ja GIF-viennissa. Mustavalkoisessa kaytetaan harmaasavyja. MP4:n haviollinen pakkaus voi hieman muuttaa savyja.
+- `Varipaletti`: vapaa, kiinteat 8 tai 16 varia, oma 2-16 varin paletti tai kaksivarinen tila. Kiintea ja oma paletti pysyvat samoina kaikissa ruuduissa ja GIF-viennissa. MP4:n haviollinen pakkaus voi hieman muuttaa savyja.
+- `Oma`: muokkaa variruutuja ja tallenna nimetty paletti. Suosikit tallentuvat kyseiseen selaimeen. Kaksivarisessa tilassa voi valita syanotypian, vihrean ja persikan tai omat varjot ja vaaleat.
+- `Valotus`: kirkkaus, kontrasti, varikyllaisyys ja varilampotila valitun tyylin paalle.
+- `Painojalki`: ruudukkoon lukittu ditherointi, risografi ja pisterasteri. Ditherointi on kaytossa rajatuilla paleteilla. Pintakuviot eivat lisaa uusia vareja valittuun palettiin.
+- `Liike`: valkynnantasaus vertaa kuvan valoisuutta enintaan kahteen ruutuun kummallakin puolella. Jalkikuva sekoittaa mukaan enintaan kolme edellista kuvaa. Efektit kayttavat vain valittua aikavalia, eivat kierrata kuvia leikkeen lopusta alkuun ja toimivat samoin esikatselussa ja viennissa.
+- `Rajaus ja kaanto`: alkuperainen kuvasuhde, vaaka 16:9, nelio tai pysty 9:16. Kuvaa voi kaantaa 90 asteen askelin seka suurentaa ja siirtaa rajausta.
 
 Oletuksia voi saataa `docs/config.js`-tiedostossa:
 
@@ -145,7 +150,7 @@ Kalenterissa nakyvat paivittaiset kuvamaarat. Pikavalinnat ovat kaikki kuvat, ta
 
 ## Videovienti
 
-`Vie video` koostaa valitun aikavalin kuvat valitulla pikselitarkkuudella ja varityylilla. Vienti tapahtuu kokonaan selaimessa: kuvia ei laheteta ulkopuoliseen muunnospalveluun. Kuvanopeus on 1-24 fps. Lopputulos skaalataan lahimman naapurin menetelmalla noin 640 pikselin pitkalle sivulle, jotta pikselit sailyvat teravina.
+`Vie video` koostaa valitun aikavalin kuvat esikatselun tehosteilla ja pikselitarkkuudella. Viennin kuvasuhteen voi valita erikseen. Vienti tapahtuu kokonaan selaimessa: kuvia ei laheteta ulkopuoliseen muunnospalveluun eika alkuperaisia kuvia muuteta. Kuvanopeus on 1-24 fps. Lopputulos skaalataan lahimman naapurin menetelmalla 640 pikselin pitkalle sivulle, jotta pikselit sailyvat teravina.
 
 - MP4 kayttaa selaimen WebCodecs-enkooderia ja Mediabunny-kirjastoa. Jos selain ei tue sopivaa enkooderia, kaytettavissa on GIF-vienti.
 - GIF kayttaa gifenc-kirjastoa. Enimmaismaara on 1000 ruutua; MP4:ssa 10000 ruutua.
@@ -209,6 +214,7 @@ Selaintestit tarvitsevat Playwrightin, Chromiumin ja HTTP-palvelimen `docs`-kans
 python3 -m http.server 8000 --directory docs
 # Toisessa terminaalissa, kun playwright on asennettu:
 node tests/browser.cjs
+node tests/editor-browser.cjs
 # Huoltosivun eristetty HTTPS-selaintesti init-komennon jalkeen:
 node tests/maintenance-browser.mjs
 ```

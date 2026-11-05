@@ -122,6 +122,7 @@ h1 {
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-rows: auto 1fr;
   grid-template-areas: "viewer controls" "calendar controls";
   gap: 18px;
   align-items: start;
@@ -352,6 +353,7 @@ input[type="range"] {
   .workspace {
     display: grid;
     grid-template-areas: "viewer" "controls" "calendar";
+    grid-template-rows: auto auto auto;
   }
 
   .control-panel {
@@ -455,10 +457,37 @@ dialog::backdrop { background: #17201c80; }
 progress { width: 100%; height: 8px; margin-top: 12px; accent-color: var(--accent); }
 .palette-field { min-width: 0; border: 0; padding: 0; margin: 0; }
 .palette-field legend { font-size: 14px; color: var(--muted); margin-bottom: 8px; }
-.palette-field .segmented { display: flex; }
-.palette-field button { flex: 1; padding-inline: 8px; }
+.palette-field .segmented { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.palette-field .segmented button { grid-column: span 2; padding-inline: 6px; }
+.palette-field .segmented button:nth-child(n+4) { grid-column: span 3; border-top: 1px solid var(--line); }
+.palette-field .segmented button:focus-visible { outline-offset: -3px; }
 .palette-preview { display: grid; grid-template-columns: repeat(var(--palette-count, 16), minmax(0, 1fr)); gap: 2px; margin-top: 8px; }
 .palette-preview span { height: 18px; border: 1px solid #17201c10; }
+.palette-editor { display: grid; gap: 10px; margin-top: 12px; }
+.color-count { display: grid; grid-template-columns: 1fr 68px; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+.palette-action { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 8px; align-items: center; }
+.palette-action .icon-button { width: 40px; height: 38px; }
+.palette-action input, .palette-action select, .color-count input { width: 100%; min-width: 0; min-height: 38px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 14px; }
+.palette-action button:disabled { opacity: .45; cursor: default; transform: none; }
+.palette-editor .muted { margin: 0; }
+.palette-editor .muted:empty { display: none; }
+.editable-swatches { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.palette-editor input[type="color"] { width: 100%; min-width: 0; height: 38px; border: 1px solid var(--line); border-radius: 5px; padding: 3px; background: var(--surface); cursor: pointer; }
+.palette-editor input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 2px; }
+.palette-editor input[type="color"]::-moz-color-swatch { border: 0; border-radius: 2px; }
+.duo-swatches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.duo-swatches label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.effects-panel { border-top: 1px solid var(--line); }
+.effect-group { min-width: 0; border-bottom: 1px solid var(--line); }
+.effect-group summary { padding: 12px 0; cursor: pointer; font-size: 14px; font-weight: 600; }
+.effect-group > label { margin: 0 0 12px; }
+.effect-range { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 8px; align-items: baseline; font-size: 13px; color: var(--muted); }
+.effect-range input { grid-column: 1 / -1; width: 100%; min-width: 0; margin: 0; }
+.effect-range output { min-width: 52px; color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
+.text-button { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; margin-top: 6px; padding: 0 4px; border: 0; background: transparent; color: var(--muted); font-size: 13px; cursor: pointer; }
+.text-button:hover { color: var(--accent); }
+.text-button .icon { width: 15px; height: 15px; }
+.export-fields label:last-child { grid-column: 1 / -1; }
 @media (max-width: 1100px) { .health-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 520px) {
   h1 { font-size: 24px; }

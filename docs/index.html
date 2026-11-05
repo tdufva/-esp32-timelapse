@@ -4,9 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ESP32 Timelapse</title>
-    <link rel="stylesheet" href="styles.css?v=20261104-3">
+    <link rel="stylesheet" href="styles.css?v=20261105-4">
     <script src="config.js?v=20261104-3"></script>
-    <script type="module" src="app.js?v=20261104-3"></script>
+    <script type="module" src="app.js?v=20261105-4"></script>
   </head>
   <body>
     <main class="app-shell">
@@ -56,7 +56,63 @@
           <label class="speed-control"><span>Nopeus</span><input id="speedSlider" type="range" min="1" max="24" value="8"><output id="speedLabel" for="speedSlider">8 fps</output></label>
           <label class="setting-control"><span>Resoluutio</span><input id="resolutionSlider" type="range" min="0" max="8" value="5"><output id="resolutionLabel" for="resolutionSlider">128 × 96 px</output></label>
           <label class="setting-control"><span>Tyyli</span><select id="styleSelect"><option value="minimal">Minimalistinen</option><option value="nature">Luontodokumentti</option><option value="cinematic">Cinematic</option><option value="mono">Mustavalkoinen</option></select></label>
-          <fieldset class="palette-field"><legend>Väripaletti</legend><div id="paletteControls" class="segmented" role="group" aria-label="Väripaletti"><button type="button" data-palette="original" aria-pressed="false">Vapaa</button><button type="button" data-palette="8" aria-pressed="false">8 väriä</button><button type="button" data-palette="16" aria-pressed="true">16 väriä</button></div><div id="palettePreview" class="palette-preview" aria-hidden="true"></div></fieldset>
+          <fieldset class="palette-field">
+            <legend>Väripaletti</legend>
+            <div id="paletteControls" class="segmented" role="group" aria-label="Väripaletti">
+              <button type="button" data-palette="original" aria-pressed="false">Vapaa</button>
+              <button type="button" data-palette="8" aria-pressed="false">8 väriä</button>
+              <button type="button" data-palette="16" aria-pressed="true">16 väriä</button>
+              <button type="button" data-palette="custom" aria-pressed="false">Oma</button>
+              <button type="button" data-palette="duo" aria-pressed="false">Kaksivärinen</button>
+            </div>
+            <div id="palettePreview" class="palette-preview" aria-hidden="true"></div>
+            <div id="customPalette" class="palette-editor" hidden>
+              <label class="color-count">Värejä<input id="customCount" type="number" min="2" max="16" step="1" value="3"></label>
+              <div id="customColors" class="editable-swatches" role="group" aria-label="Paletin värit"></div>
+              <div class="palette-action">
+                <select id="favoritePalettes" aria-label="Tallennetut paletit"></select>
+                <button id="deletePalette" class="icon-button small" type="button" title="Poista tallennettu paletti" aria-label="Poista tallennettu paletti" disabled><i data-lucide="x" class="icon" aria-hidden="true"></i></button>
+              </div>
+              <form id="paletteForm" class="palette-action">
+                <input id="paletteName" type="text" maxlength="40" required placeholder="Paletin nimi" aria-label="Paletin nimi">
+                <button class="icon-button small" type="submit" title="Tallenna paletti" aria-label="Tallenna paletti"><i data-lucide="save" class="icon" aria-hidden="true"></i></button>
+              </form>
+              <p id="paletteMessage" class="muted" role="status"></p>
+            </div>
+            <div id="duoPalette" class="palette-editor" hidden>
+              <label class="setting-control">Sävypari<select id="duoPreset"><option value="cyanotype">Syanotypia</option><option value="peach">Vihreä ja persikka</option><option value="custom" disabled>Oma</option></select></label>
+              <div class="duo-swatches"><label>Varjot<input id="duoDark" type="color" value="#16365e"></label><label>Vaaleat<input id="duoLight" type="color" value="#f4f6ef"></label></div>
+            </div>
+          </fieldset>
+          <div class="effects-panel">
+            <details class="effect-group">
+              <summary>Valotus</summary>
+              <label class="effect-range"><span>Kirkkaus</span><output id="brightnessValue" for="brightness">0</output><input id="brightness" type="range" min="-50" max="50" value="0"></label>
+              <label class="effect-range"><span>Kontrasti</span><output id="contrastValue" for="contrast">0</output><input id="contrast" type="range" min="-50" max="50" value="0"></label>
+              <label class="effect-range"><span>Värikylläisyys</span><output id="saturationValue" for="saturation">0</output><input id="saturation" type="range" min="-100" max="100" value="0"></label>
+              <label class="effect-range"><span>Värilämpötila</span><output id="warmthValue" for="warmth">0</output><input id="warmth" type="range" min="-100" max="100" value="0"></label>
+            </details>
+            <details class="effect-group">
+              <summary>Painojälki</summary>
+              <label class="effect-range"><span>Ditheröinti</span><output id="ditherValue" for="dither">0 %</output><input id="dither" type="range" min="0" max="100" value="0"></label>
+              <label class="setting-control">Pinta<select id="texture"><option value="none">Ei pintaa</option><option value="riso">Risografi</option><option value="halftone">Pisterasteri</option></select></label>
+              <label id="inkControl" class="effect-range" hidden><span>Pinnan voimakkuus</span><output id="inkValue" for="ink">60 %</output><input id="ink" type="range" min="0" max="100" value="60"></label>
+            </details>
+            <details class="effect-group">
+              <summary>Liike</summary>
+              <label class="effect-range"><span>Välkynnän tasaus</span><output id="deflickerValue" for="deflicker">0 %</output><input id="deflicker" type="range" min="0" max="100" value="0"></label>
+              <label class="effect-range"><span>Jälkikuva</span><output id="trailsValue" for="trails">0 %</output><input id="trails" type="range" min="0" max="100" value="0"></label>
+            </details>
+            <details class="effect-group">
+              <summary>Rajaus ja kääntö</summary>
+              <label class="setting-control">Kuvasuhde<select id="aspect"><option value="original">Alkuperäinen</option><option value="landscape">Vaaka 16:9</option><option value="square">Neliö 1:1</option><option value="portrait">Pysty 9:16</option></select></label>
+              <label class="setting-control">Kääntö<select id="rotation"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
+              <label class="effect-range"><span>Suurennus</span><output id="zoomValue" for="zoom">100 %</output><input id="zoom" type="range" min="100" max="300" value="100"></label>
+              <label class="effect-range"><span>Vaakasiirto</span><output id="panXValue" for="panX">0</output><input id="panX" type="range" min="-100" max="100" value="0"></label>
+              <label class="effect-range"><span>Pystysiirto</span><output id="panYValue" for="panY">0</output><input id="panY" type="range" min="-100" max="100" value="0"></label>
+            </details>
+            <button id="resetEffects" class="text-button" type="button"><i data-lucide="refresh-cw" class="icon" aria-hidden="true"></i>Palauta säädöt</button>
+          </div>
           <button id="exportOpen" class="command-button primary" type="button" disabled><i data-lucide="download" class="icon" aria-hidden="true"></i>Vie video</button>
           <dl class="stat-grid"><div><dt>Ensimmäinen</dt><dd id="firstDate">—</dd></div><div><dt>Viimeisin</dt><dd id="lastDate">—</dd></div><div><dt>Kansio</dt><dd id="pathValue">photos</dd></div></dl>
         </aside>
@@ -71,7 +127,7 @@
       <div class="dialog-heading"><h2 id="exportTitle">Videovienti</h2><button id="exportClose" class="icon-button small" type="button" title="Sulje" aria-label="Sulje"><i data-lucide="x" class="icon" aria-hidden="true"></i></button></div>
       <p id="exportSummary" class="export-summary"></p>
       <form id="exportForm">
-        <div class="export-fields"><label>Tiedostomuoto<select id="exportFormat"><option value="mp4">MP4</option><option value="gif">GIF</option></select></label><label>Kuvanopeus<input id="exportFps" type="number" min="1" max="24" step="1" value="8" required></label></div>
+        <div class="export-fields"><label>Tiedostomuoto<select id="exportFormat"><option value="mp4">MP4</option><option value="gif">GIF</option></select></label><label>Kuvanopeus<input id="exportFps" type="number" min="1" max="24" step="1" value="8" required></label><label>Kuvasuhde<select id="exportAspect"><option value="original">Alkuperäinen</option><option value="landscape">Vaaka 16:9</option><option value="square">Neliö 1:1</option><option value="portrait">Pysty 9:16</option></select></label></div>
         <p id="exportDuration" class="muted"></p><progress id="exportProgress" value="0" max="1" hidden></progress><p id="exportMessage" role="status" aria-live="polite"></p>
         <div class="dialog-actions"><button id="exportCancel" class="command-button" type="button" hidden><i data-lucide="x" class="icon" aria-hidden="true"></i>Keskeytä</button><button id="exportStart" class="command-button primary" type="submit"><i data-lucide="download" class="icon" aria-hidden="true"></i>Luo ja lataa</button></div>
       </form>

@@ -1,8 +1,10 @@
+import { ASPECTS } from './image-effects.mjs?v=4';
+
 function checkAbort(signal) {
   if (signal?.aborted) throw new DOMException('Vienti keskeytetty', 'AbortError');
 }
 
-export async function exportTimelapse({ frames, fps, format, render, signal, paletteColors = null, onProgress = () => {} }) {
+export async function exportTimelapse({ frames, fps, format, render, signal, aspect = 'original', paletteColors = null, onProgress = () => {} }) {
   if (!frames.length) throw new Error('Valitulla aikavälillä ei ole kuvia.');
   if (!Number.isFinite(fps) || fps < 1 || fps > 24) throw new Error('Virheellinen kuvanopeus.');
   if (!['mp4', 'gif'].includes(format)) throw new Error('Tuntematon tiedostomuoto.');
@@ -10,14 +12,20 @@ export async function exportTimelapse({ frames, fps, format, render, signal, pal
   const limit = format === 'gif' ? 1000 : 10000;
   if (frames.length > limit) throw new Error(`${format.toUpperCase()}-viennin enimmäismäärä on ${limit} kuvaa.`);
   checkAbort(signal);
-  const first = await render(frames[0], signal);
+  const first = await render(frames[0], signal, 0);
   const canvas = document.createElement('canvas');
-  const scale = 640 / Math.max(first.width, first.height);
-  canvas.width = Math.max(16, Math.round(first.width * scale / 2) * 2);
-  canvas.height = Math.max(16, Math.round(first.height * scale / 2) * 2);
+  const target = Object.hasOwn(ASPECTS, aspect) ? ASPECTS[aspect] : null;
+  const [width, height] = target || [first.width, first.height];
+  const scale = 640 / Math.max(width, height);
+  canvas.width = Math.max(16, Math.round(width * scale / 2) * 2);
+  canvas.height = Math.max(16, Math.round(height * scale / 2) * 2);
   const context = canvas.getContext('2d', { willReadFrequently: format === 'gif' });
   context.imageSmoothingEnabled = false;
   function draw(source) {
+    if (target) {
+      context.drawImage(source, 0, 0, canvas.width, canvas.height);
+      return;
+    }
     context.fillStyle = '#111514';
     context.fillRect(0, 0, canvas.width, canvas.height);
     const ratio = Math.min(canvas.width / source.width, canvas.height / source.height);
@@ -31,7 +39,7 @@ export async function exportTimelapse({ frames, fps, format, render, signal, pal
     const fixedIndices = new Map((paletteColors || []).map((rgb, index) => [(rgb[0] << 16) | (rgb[1] << 8) | rgb[2], index]));
     for (let index = 0; index < frames.length; index++) {
       checkAbort(signal);
-      draw(index === 0 ? first : await render(frames[index], signal));
+      draw(index === 0 ? first : await render(frames[index], signal, index));
       const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
       const palette = paletteColors || quantize(data, 256);
       let indexed;
@@ -66,7 +74,7 @@ export async function exportTimelapse({ frames, fps, format, render, signal, pal
     await output.start();
     for (let index = 0; index < frames.length; index++) {
       checkAbort(signal);
-      draw(index === 0 ? first : await render(frames[index], signal));
+      draw(index === 0 ? first : await render(frames[index], signal, index));
       await source.add(index / fps, 1 / fps);
       onProgress((index + 1) / frames.length);
     }

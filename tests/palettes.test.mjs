@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { paletteColors, applyFixedPalette } from '../docs/palettes.mjs';
+import { paletteColors } from '../docs/palettes.mjs';
+import { createFinish, DEFAULT_EFFECTS } from '../docs/image-effects.mjs';
 
 test('each fixed style has exactly 8 or 16 distinct stable colors', () => {
   for (const style of ['minimal', 'nature', 'cinematic', 'mono']) {
@@ -18,8 +19,9 @@ test('fixed mapping is independent of pixel order and only uses palette members'
   for (const count of ['8', '16']) {
     const image = { data: new Uint8ClampedArray(pixels.flat()) };
     const reversed = { data: new Uint8ClampedArray([...pixels].reverse().flat()) };
-    applyFixedPalette(image, 'minimal', count);
-    applyFixedPalette(reversed, 'minimal', count);
+    const finish = createFinish(paletteColors('minimal', count), DEFAULT_EFFECTS);
+    finish(image);
+    finish(reversed);
     const mapped = Array.from({ length: pixels.length }, (_, i) => [...image.data.slice(i * 4, i * 4 + 4)]);
     const mappedReverse = Array.from({ length: pixels.length }, (_, i) => [...reversed.data.slice(i * 4, i * 4 + 4)]).reverse();
     assert.deepEqual(mapped, mappedReverse);
@@ -30,6 +32,6 @@ test('fixed mapping is independent of pixel order and only uses palette members'
 test('free palette preserves the existing graded image unchanged', () => {
   const image = { data: new Uint8ClampedArray([14, 65, 99, 255]) };
   assert.equal(paletteColors('minimal', 'original'), null);
-  applyFixedPalette(image, 'minimal', 'original');
+  createFinish(null, DEFAULT_EFFECTS)(image);
   assert.deepEqual([...image.data], [14, 65, 99, 255]);
 });

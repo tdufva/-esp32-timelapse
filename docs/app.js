@@ -1,7 +1,8 @@
 import { parseFrameDate, filterFrames, CAMERA_TIME_ZONE } from './timelapse-core.mjs?v=3';
-import { createDashboard } from './dashboard.mjs?v=3';
+import { createDashboard } from './dashboard.mjs?v=4';
 import { createIcons, icons } from './vendor/lucide.mjs?v=3';
-import { applyFixedPalette, paletteColors } from './palettes.mjs?v=3';
+import { createEditor } from './editor.mjs?v=4';
+import { createFrameRenderer } from './frame-renderer.mjs?v=4';
 
 const config = {
   owner: "your-github-user",
@@ -33,7 +34,6 @@ const state = {
   fps: Number(config.frameRate) || 8,
   resolutionIndex: 5,
   styleMode: config.defaultStyle || "minimal",
-  paletteMode: config.defaultPalette || '16',
   timer: null,
   refreshTimer: null
 };
@@ -67,7 +67,7 @@ els.exportOpen = document.querySelector('#exportOpen');
 els.emptyMessage = document.querySelector('#emptyMessage');
 
 const renderState = {
-  token: 0,
+  controller: null,
   images: new Map()
 };
 
@@ -120,18 +120,6 @@ state.resolutionIndex = configuredResolutionIndex >= 0 ? configuredResolutionInd
 
 if (!stylePresets[state.styleMode]) {
   state.styleMode = "minimal";
-}
-if (!['original', '8', '16'].includes(state.paletteMode)) state.paletteMode = '16';
-
-function updatePaletteControls() {
-  document.querySelectorAll('[data-palette]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.palette === state.paletteMode)));
-  const preview = document.getElementById('palettePreview');
-  preview.replaceChildren(...(paletteColors(state.styleMode, state.paletteMode) || []).map((color) => {
-    const swatch = document.createElement('span');
-    swatch.style.backgroundColor = `rgb(${color.join(',')})`;
-    return swatch;
-  }));
-  preview.style.setProperty('--palette-count', preview.children.length || 16);
 }
 
 function isConfigured() {
@@ -319,37 +307,6 @@ function posterize(value, levels) {
   return Math.round(Math.round(value * (safeLevels - 1)) / (safeLevels - 1) * 255);
 }
 
-function resolveRenderSize(image, resolutionIndex = state.resolutionIndex) {
-  const preset = resolutionPresets[resolutionIndex] || resolutionPresets[5];
-  const sourceWidth = Math.max(1, image.naturalWidth || image.width || 1);
-  const sourceHeight = Math.max(1, image.naturalHeight || image.height || 1);
-
-  if (preset.full) {
-    return { width: sourceWidth, height: sourceHeight, full: true };
-  }
-
-  if (preset.id === "4x6") {
-    return sourceWidth >= sourceHeight
-      ? { width: 6, height: 4, full: false }
-      : { width: 4, height: 6, full: false };
-  }
-
-  const longSide = Math.max(1, Number(preset.longSide) || 128);
-  if (sourceWidth >= sourceHeight) {
-    return {
-      width: Math.min(sourceWidth, longSide),
-      height: Math.max(1, Math.round(Math.min(sourceWidth, longSide) * sourceHeight / sourceWidth)),
-      full: false
-    };
-  }
-
-  return {
-    width: Math.max(1, Math.round(Math.min(sourceHeight, longSide) * sourceWidth / sourceHeight)),
-    height: Math.min(sourceHeight, longSide),
-    full: false
-  };
-}
-
 function updateResolutionLabel(width, height, isFull = false) {
   const suffix = isFull ? `Täysi ${width} x ${height} px` : `${width} x ${height} px`;
   els.resolutionLabel.value = suffix;
@@ -363,7 +320,7 @@ function updateResolutionPresetLabel() {
   els.resolutionLabel.textContent = label;
 }
 
-function gradeMinimal(red, green, blue) {
+function gradeMinimal(red, green, blue, stepped) {
   const [h, s, l] = rgbToHsl(red, green, blue);
   const warmLight = clamp(l * Number(config.solarBrightness || 1.18) + 0.04, 0, 1);
   const vivid = clamp(s * Number(config.solarSaturation || 1.35) + 0.04, 0, 1);
@@ -380,6 +337,7 @@ function gradeMinimal(red, green, blue) {
   }
 
   let [r, g, b] = hslToRgb(hue, vivid, warmLight);
+  if (!stepped) return [r, g, b];
   r = posterize(r / 255, config.solarLevels);
   g = posterize(g / 255, config.solarLevels);
   b = posterize(b / 255, config.solarLevels);
@@ -387,7 +345,7 @@ function gradeMinimal(red, green, blue) {
   return [r, g, b];
 }
 
-function gradeNature(red, green, blue) {
+function gradeNature(red, green, blue, stepped) {
   let [h, s, l] = rgbToHsl(red, green, blue);
   l = contrastLightness(l, 1.08, 0.015);
   s = clamp(s * 1.22 + 0.03, 0, 1);
@@ -402,13 +360,14 @@ function gradeNature(red, green, blue) {
   }
 
   let [r, g, b] = hslToRgb(h, s, l);
+  if (!stepped) return [r, g, b];
   r = posterize(r / 255, stylePresets.nature.levels);
   g = posterize(g / 255, stylePresets.nature.levels);
   b = posterize(b / 255, stylePresets.nature.levels);
   return [r, g, b];
 }
 
-function gradeCinematic(red, green, blue) {
+function gradeCinematic(red, green, blue, stepped) {
   const [h, s, l] = rgbToHsl(red, green, blue);
   const contrast = contrastLightness(l, 1.22, -0.015);
   let hue = h;
@@ -425,35 +384,36 @@ function gradeCinematic(red, green, blue) {
   }
 
   let [r, g, b] = hslToRgb(hue, saturation, contrast);
+  if (!stepped) return [r, g, b];
   r = posterize(r / 255, stylePresets.cinematic.levels);
   g = posterize(g / 255, stylePresets.cinematic.levels);
   b = posterize(b / 255, stylePresets.cinematic.levels);
   return [r, g, b];
 }
 
-function gradeMono(red, green, blue) {
+function gradeMono(red, green, blue, stepped) {
   const luminance = contrastLightness((red * 0.299 + green * 0.587 + blue * 0.114) / 255, 1.16, 0.02);
-  const gray = posterize(luminance, stylePresets.mono.levels);
+  const gray = stepped ? posterize(luminance, stylePresets.mono.levels) : Math.round(luminance * 255);
   return [gray, gray, gray];
 }
 
-function gradePixel(red, green, blue, styleMode = state.styleMode) {
+function gradePixel(red, green, blue, styleMode, stepped) {
   switch (styleMode) {
     case "nature":
-      return gradeNature(red, green, blue);
+      return gradeNature(red, green, blue, stepped);
     case "cinematic":
-      return gradeCinematic(red, green, blue);
+      return gradeCinematic(red, green, blue, stepped);
     case "mono":
-      return gradeMono(red, green, blue);
+      return gradeMono(red, green, blue, stepped);
     default:
-      return gradeMinimal(red, green, blue);
+      return gradeMinimal(red, green, blue, stepped);
   }
 }
 
-function colorGrade(imageData, styleMode = state.styleMode) {
+function colorGrade(imageData, styleMode, stepped) {
   const data = imageData.data;
   for (let index = 0; index < data.length; index += 4) {
-    const [r, g, b] = gradePixel(data[index], data[index + 1], data[index + 2], styleMode);
+    const [r, g, b] = gradePixel(data[index], data[index + 1], data[index + 2], styleMode, stepped);
     data[index] = r;
     data[index + 1] = g;
     data[index + 2] = b;
@@ -461,37 +421,15 @@ function colorGrade(imageData, styleMode = state.styleMode) {
   return imageData;
 }
 
-function drawPixelFrame(image) {
-  const { canvas, width, height, full } = pixelCanvas(image, state);
-  els.frameCanvas.width = width;
-  els.frameCanvas.height = height;
-  const target = els.frameCanvas.getContext('2d');
-  target.imageSmoothingEnabled = false;
-  target.drawImage(canvas, 0, 0);
-  updateResolutionLabel(width, height, full);
-}
-
-function pixelCanvas(image, settings) {
-  const { width, height, full } = resolveRenderSize(image, settings.resolutionIndex);
-  const workCanvas = document.createElement("canvas");
-  const workContext = workCanvas.getContext("2d", { willReadFrequently: true });
-
-  workCanvas.width = width;
-  workCanvas.height = height;
-  workContext.imageSmoothingEnabled = true;
-  workContext.drawImage(image, 0, 0, width, height);
-
-  const graded = colorGrade(workContext.getImageData(0, 0, width, height), settings.styleMode);
-  applyFixedPalette(graded, settings.styleMode, settings.paletteMode);
-  workContext.putImageData(graded, 0, 0);
-  return { canvas: workCanvas, width, height, full };
-}
+const renderSequence = createFrameRenderer({ loadImage, grade: colorGrade });
 
 async function renderFrame() {
   const frame = state.frames[state.index];
-  const token = ++renderState.token;
+  renderState.controller?.abort();
+  renderState.controller = null;
 
   if (!frame) {
+    els.frameCanvas.setAttribute('aria-busy', 'false');
     els.frameCanvas.style.display = "none";
     els.emptyState.style.display = "grid";
     updateResolutionPresetLabel();
@@ -502,16 +440,25 @@ async function renderFrame() {
   els.emptyState.style.display = "none";
   els.frameCanvas.style.display = "block";
 
+  const controller = new AbortController();
+  renderState.controller = controller;
+  els.frameCanvas.setAttribute('aria-busy', 'true');
   try {
-    const image = await loadImage(frame.url);
-    if (token !== renderState.token) {
-      return;
-    }
-    drawPixelFrame(image);
+    const { canvas, width, height, full } = await renderSequence(state.frames, state.index, getSettings(), controller.signal);
+    if (controller.signal.aborted) return;
+    if (els.frameCanvas.width !== width) els.frameCanvas.width = width;
+    if (els.frameCanvas.height !== height) els.frameCanvas.height = height;
+    els.frameCanvas.getContext('2d').drawImage(canvas, 0, 0);
+    updateResolutionLabel(width, height, full);
   } catch (error) {
-    if (token !== renderState.token) return;
+    if (controller.signal.aborted) return;
     console.error(error);
     setStatus("Kuvavirhe");
+  } finally {
+    if (renderState.controller === controller) {
+      renderState.controller = null;
+      els.frameCanvas.setAttribute('aria-busy', 'false');
+    }
   }
 
   updateStats();
@@ -548,7 +495,7 @@ function stopPlayback() {
 
 function startPlayback() {
   window.clearInterval(state.timer);
-  state.timer = window.setInterval(nextFrame, 1000 / Math.max(state.fps, 1));
+  state.timer = window.setInterval(() => { if (!renderState.controller) nextFrame(); }, 1000 / Math.max(state.fps, 1));
   state.playing = true;
   els.playToggle.classList.add("is-playing");
 }
@@ -615,22 +562,23 @@ async function loadFrames({ keepPosition = true } = {}) {
   }
 }
 
+const editor = createEditor({ initialPalette: config.defaultPalette, getStyle: () => state.styleMode, onChange: renderFrame });
+function getSettings() {
+  const resolution = resolutionPresets[state.resolutionIndex];
+  return {
+    ...editor.getSettings(), resolution, styleMode: state.styleMode, fps: state.fps,
+    styleLabel: stylePresets[state.styleMode].label, resolutionLabel: resolution.label,
+  };
+}
+
 const dashboard = createDashboard({
   getFrames: () => state.frames,
-  getSettings: () => ({ resolutionIndex: state.resolutionIndex, styleMode: state.styleMode, paletteMode: state.paletteMode, paletteColors: paletteColors(state.styleMode, state.paletteMode), fps: state.fps, styleLabel: stylePresets[state.styleMode].label, resolutionLabel: els.resolutionLabel.textContent, paletteLabel: state.paletteMode === 'original' ? 'Vapaa paletti' : `${state.paletteMode} väriä` }),
+  getSettings,
   applyRange: (range) => { state.range = range; applyFilters(false); },
-  renderExport: async (frame, settings, signal) => pixelCanvas(await loadImage(frame.url, signal), settings).canvas,
+  renderExport: async (frames, index, settings, signal) => (await renderSequence(frames, index, settings, signal)).canvas,
   timeZone: config.timeZone,
 });
 createIcons({ icons });
-updatePaletteControls();
-document.getElementById('paletteControls').addEventListener('click', (event) => {
-  const button = event.target.closest('[data-palette]');
-  if (!button) return;
-  state.paletteMode = button.dataset.palette;
-  updatePaletteControls();
-  renderFrame();
-});
 els.thumbnailStrip.addEventListener('click', (event) => {
   const button = event.target.closest('[data-index]');
   if (!button) return;
@@ -689,7 +637,7 @@ els.resolutionSlider.addEventListener("input", (event) => {
 els.styleSelect.value = state.styleMode;
 els.styleSelect.addEventListener("change", (event) => {
   state.styleMode = event.target.value;
-  updatePaletteControls();
+  editor.refreshPalette();
   renderFrame();
 });
 
